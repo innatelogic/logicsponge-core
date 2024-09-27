@@ -1,0 +1,6 @@
+hatch
+pre-commit
+pyright
+pytest
+ruff
+tox
