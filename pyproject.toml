@@ -25,6 +25,9 @@ classifiers = [
   "Programming Language :: Python",
 ]
 
+[project.urls]
+Repository = "https://github.com/innatelogic/datasponge-core.git"
+
 [tool.hatch.metadata.hooks.requirements_txt]
 files = ["requirements.txt"]
 
