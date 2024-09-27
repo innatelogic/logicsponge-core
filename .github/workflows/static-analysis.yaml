@@ -1,0 +1,27 @@
+name: static analysis
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - uses: chartboost/ruff-action@v1
+      - uses: chartboost/ruff-action@v1
+        with:
+          args: "format --check"
+      - run: |
+          python -m venv venv
+          . venv/bin/activate
+          pip install -r requirements.txt
+          python --version
+      - run: echo "$PWD/venv/bin" >> $GITHUB_PATH
+      - uses: jakebailey/pyright-action@v2
