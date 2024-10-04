@@ -15,7 +15,7 @@ from dash import ClientsideFunction, clientside_callback, dcc, html
 from dash.dependencies import Input, Output
 from plotly.subplots import make_subplots
 
-import datasponge as ds
+import datasponge.core as ds
 
 logger = logging.getLogger(__name__)
 

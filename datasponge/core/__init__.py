@@ -1,6 +1,6 @@
 """datasponge: A real-time data processing pipeline"""
 
-from datasponge.datasponge import (
+from datasponge.core.datasponge import (
     AddIndex,
     DataItem,
     DataItemFilter,

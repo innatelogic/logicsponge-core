@@ -2,7 +2,7 @@
 
 import pytest
 
-import datasponge as ds
+import datasponge.core as ds
 
 
 def test_upper():

@@ -9,7 +9,7 @@ import watchdog.events
 import watchdog.observers
 from watchdog.observers.api import BaseObserver
 
-import datasponge as ds
+import datasponge.core as ds
 
 
 class FileWatchHandler(watchdog.events.FileSystemEventHandler):

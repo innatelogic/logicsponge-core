@@ -2,7 +2,7 @@ import csv
 import logging
 import time
 
-import datasponge as ds
+import datasponge.core as ds
 
 logger = logging.getLogger(__name__)
 

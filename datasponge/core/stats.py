@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 import scipy.stats
 
-import datasponge as ds
+import datasponge.core as ds
 
 
 class BaseStatistic(ds.FunctionTerm):

@@ -10,7 +10,7 @@ import matplotlib.lines
 import matplotlib.pyplot as plt
 import numpy as np
 
-import datasponge as ds
+import datasponge.core as ds
 
 logger = logging.getLogger(__name__)
 
