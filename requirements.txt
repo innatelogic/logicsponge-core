@@ -10,5 +10,6 @@ dash-svg
 matplotlib
 plotly
 
+chardet
 gdown
 watchdog
