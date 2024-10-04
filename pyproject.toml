@@ -40,7 +40,6 @@ venv = "venv"
 
 [tool.hatch.build.targets.wheel]
 packages = ["datasponge"]
-include-only = ["datasponge/core"]
 
 [tool.ruff]
 line-length = 120
@@ -577,7 +576,7 @@ select = [
 ban-relative-imports = "all"
 
 [tool.ruff.lint.isort]
-known-first-party = ["datasponge_core"]
+known-first-party = ["datasponge"]
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false
