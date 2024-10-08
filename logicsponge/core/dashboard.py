@@ -47,7 +47,7 @@ class Graph:
 
     def __init__(self, name: str, stacked: bool = False) -> None:  # noqa: FBT001, FBT002
         """
-        stagged: if ploted lines are stacked as subgraphs instead of being plotted as overlays
+        stacked: if ploted lines are stacked as subgraphs instead of being plotted as overlays
         """
         with lock:
             self.uuid = str(uuid.uuid4())
