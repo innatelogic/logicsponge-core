@@ -10,7 +10,7 @@ import matplotlib.lines
 import matplotlib.pyplot as plt
 import numpy as np
 
-import logicsponge.core as ds
+import logicsponge.core as ls
 
 logger = logging.getLogger(__name__)
 

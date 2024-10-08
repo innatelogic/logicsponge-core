@@ -1,6 +1,6 @@
-"""datasponge: A real-time data processing pipeline"""
+"""logicsponge: A real-time data processing pipeline"""
 
-from datasponge.core.datasponge import (
+from logicsponge.core.logicsponge import (
     AddIndex,
     DataItem,
     DataItemFilter,

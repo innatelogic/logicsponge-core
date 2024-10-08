@@ -2,7 +2,7 @@ import csv
 import logging
 import time
 
-import logicsponge.core as ds
+import logicsponge.core as ls
 
 logger = logging.getLogger(__name__)
 
