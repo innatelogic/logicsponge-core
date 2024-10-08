@@ -3,10 +3,10 @@ from typing import Any
 import numpy as np
 import scipy.stats
 
-import datasponge.core as ds
+import logicsponge.core as ds
 
 
-class BaseStatistic(ds.FunctionTerm):
+class BaseStatistic(ls.FunctionTerm):
     """Base class to handle common functionality for base statistics."""
 
     dim: int
@@ -20,13 +20,13 @@ class BaseStatistic(ds.FunctionTerm):
     def calculate(self, *args, **kwargs):
         raise NotImplementedError
 
-    def run(self, ds_view: ds.DataStreamView):
+    def run(self, ds_view: ls.DataStreamView):
         ds_view.next()
         self._latency_queue.tic()
 
         if self.dim == 0:
             keys = ds_view[-1].keys()
-            results = ds.DataItem(
+            results = ls.DataItem(
                 {key: self.calculate(np.array(ds_view.key_to_list(key), dtype=float)) for key in keys}
             )
             self.output(results)
@@ -35,9 +35,9 @@ class BaseStatistic(ds.FunctionTerm):
             values = np.array(list(ds_view[-1].values()), dtype=float)
             result = self.calculate(values)
             if isinstance(result, dict):
-                self.output(ds.DataItem(result))
+                self.output(ls.DataItem(result))
             else:
-                out = ds.DataItem({self.stat_name: result})
+                out = ls.DataItem({self.stat_name: result})
                 self.output(out)
 
         else:
@@ -47,7 +47,7 @@ class BaseStatistic(ds.FunctionTerm):
         self._latency_queue.toc()
 
 
-class Sum(ds.FunctionTerm):
+class Sum(ls.FunctionTerm):
     """Computes cumulative sum of `key` over data items."""
 
     def __init__(self, *args, key: str, **kwargs):
@@ -55,9 +55,9 @@ class Sum(ds.FunctionTerm):
         self.key = key
         self.state = 0.0  # initially, sum is 0
 
-    def f(self, item: ds.DataItem) -> ds.DataItem:
+    def f(self, item: ls.DataItem) -> ls.DataItem:
         self.state += item[self.key]
-        return ds.DataItem({"sum": self.state})
+        return ls.DataItem({"sum": self.state})
 
 
 class Mean(BaseStatistic):
@@ -106,7 +106,7 @@ class StdHull(BaseStatistic):
         return {"mean": mean, "lower_bound": lower_bound, "upper_bound": upper_bound}
 
 
-class TestStatistic(ds.FunctionTerm):
+class TestStatistic(ls.FunctionTerm):
     """Base class to handle common functionality for test statistics."""
 
     arity: int | None
@@ -121,7 +121,7 @@ class TestStatistic(ds.FunctionTerm):
     def calculate(self, *args, **kwargs):
         raise NotImplementedError
 
-    def run(self, ds_view: ds.DataStreamView):
+    def run(self, ds_view: ls.DataStreamView):
         ds_view.next()
         self._latency_queue.tic()
 
@@ -132,7 +132,7 @@ class TestStatistic(ds.FunctionTerm):
                 raise ValueError(msg)
             series_list = [np.array(ds_view.key_to_list(key), dtype=float) for key in keys]
             result = self.calculate(*series_list)
-            self.output(ds.DataItem(result))
+            self.output(ls.DataItem(result))
 
         elif self.dim == 1:
             if self.arity != 1:
@@ -140,7 +140,7 @@ class TestStatistic(ds.FunctionTerm):
                 raise ValueError(msg)
             values = np.array(list(ds_view[-1].values()), dtype=float)
             result = self.calculate(values)
-            self.output(ds.DataItem(result))
+            self.output(ls.DataItem(result))
 
         else:
             msg = f"Unknown dimension {self.dim}"

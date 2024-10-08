@@ -2,7 +2,7 @@
 
 import pytest
 
-import datasponge.core as ds
+import logicsponge.core as ds
 
 
 def test_upper():
@@ -23,46 +23,46 @@ def test_split():
 
 
 def test_parallel():
-    x = ds.FunctionTerm(name="x")
-    y = ds.FunctionTerm(name="y")
-    z = ds.FunctionTerm(name="z")
+    x = ls.FunctionTerm(name="x")
+    y = ls.FunctionTerm(name="y")
+    z = ls.FunctionTerm(name="z")
     u = x | y | z
     assert str(u) == "(Term(x) | Term(y) | Term(z))"
-    assert type(u) is ds.ParallelTerm
+    assert type(u) is ls.ParallelTerm
 
 
 def test_sequential():
-    x = ds.FunctionTerm("x")
-    y = ds.FunctionTerm("y")
-    z = ds.FunctionTerm("z")
+    x = ls.FunctionTerm("x")
+    y = ls.FunctionTerm("y")
+    z = ls.FunctionTerm("z")
     u = x * y * z
     assert str(u) == "(Term(x); Term(y); Term(z))"
-    assert type(u) is ds.SequentialTerm
+    assert type(u) is ls.SequentialTerm
 
 
 def test_both():
-    x = ds.FunctionTerm("x")
-    y = ds.FunctionTerm("y")
-    z = ds.FunctionTerm("z")
+    x = ls.FunctionTerm("x")
+    y = ls.FunctionTerm("y")
+    z = ls.FunctionTerm("z")
     a = x | y | z
 
-    u = ds.FunctionTerm("u")
-    v = ds.FunctionTerm("v")
+    u = ls.FunctionTerm("u")
+    v = ls.FunctionTerm("v")
 
     r = u * a * v
 
     assert str(r) == "(Term(u); (Term(x) | Term(y) | Term(z)); Term(v))"
-    assert type(r) is ds.SequentialTerm
+    assert type(r) is ls.SequentialTerm
 
 
 def test_n():
     """
     check if n graph works
     """
-    x = ds.FunctionTerm("x")
-    y = ds.FunctionTerm("y")
-    a = ds.FunctionTerm("a")
-    b = ds.FunctionTerm("b")
+    x = ls.FunctionTerm("x")
+    y = ls.FunctionTerm("y")
+    a = ls.FunctionTerm("a")
+    b = ls.FunctionTerm("b")
 
     term1 = (x | y) * a
     term2 = y * b
@@ -75,10 +75,10 @@ def test_n_reverse():
     """
     check if n graph works
     """
-    x = ds.FunctionTerm("x")
-    y = ds.FunctionTerm("y")
-    a = ds.FunctionTerm("a")
-    b = ds.FunctionTerm("b")
+    x = ls.FunctionTerm("x")
+    y = ls.FunctionTerm("y")
+    a = ls.FunctionTerm("a")
+    b = ls.FunctionTerm("b")
 
     term1 = a * (x | y)
     term2 = b * y
@@ -88,8 +88,8 @@ def test_n_reverse():
 
 
 def test_run_dataitem():
-    class Hu(ds.FunctionTerm):
-        def f(self, a: ds.DataItem):
+    class Hu(ls.FunctionTerm):
+        def f(self, a: ls.DataItem):
             return a
 
     x = Hu(name="x")

@@ -15,7 +15,7 @@ from dash import ClientsideFunction, clientside_callback, dcc, html
 from dash.dependencies import Input, Output
 from plotly.subplots import make_subplots
 
-import datasponge.core as ds
+import logicsponge.core as ls
 
 logger = logging.getLogger(__name__)
 
@@ -187,20 +187,20 @@ class Graph:
 
 
 class StatisticsGraph:
-    circuit: ds.Term
+    circuit: ls.Term
 
-    def __init__(self, circuit: ds.Term) -> None:
+    def __init__(self, circuit: ls.Term) -> None:
         self.circuit = circuit
 
     @staticmethod
-    def dfs(term: ds.Term, result: list[ds.Term]) -> None:
+    def dfs(term: ls.Term, result: list[ls.Term]) -> None:
         result.append(term)
-        if isinstance(term, ds.SequentialTerm | ds.ParallelTerm):
+        if isinstance(term, ls.SequentialTerm | ls.ParallelTerm):
             StatisticsGraph.dfs(term.term_left, result=result)
             StatisticsGraph.dfs(term.term_right, result=result)
 
     @property
-    def term_list(self) -> list[ds.Term]:
+    def term_list(self) -> list[ls.Term]:
         result = []
         StatisticsGraph.dfs(self.circuit, result=result)
         return result
@@ -209,12 +209,12 @@ class StatisticsGraph:
     def stats_dict(self) -> dict:
         logging.debug("stats_dict")
 
-        def map_fun(term: ds.Term) -> dict:
-            if isinstance(term, ds.SourceTerm | ds.FunctionTerm):
+        def map_fun(term: ls.Term) -> dict:
+            if isinstance(term, ls.SourceTerm | ls.FunctionTerm):
                 return {term.id: term.stats}
             return {}
 
-        filtered = [term for term in self.term_list if isinstance(term, ds.SourceTerm | ds.FunctionTerm)]
+        filtered = [term for term in self.term_list if isinstance(term, ls.SourceTerm | ls.FunctionTerm)]
         mapped = list(map(map_fun, filtered))
         merged_dict = {}
         for d in mapped:
@@ -418,7 +418,7 @@ def update_stats(n):  # noqa: ARG001
     return {}
 
 
-class Plot(ds.FunctionTerm):
+class Plot(ls.FunctionTerm):
     """plot data items
 
     typical uses are:
@@ -445,7 +445,7 @@ class Plot(ds.FunctionTerm):
         self.graph = None
         self.stacked = stacked
 
-    def _axis_setup(self, item: ds.DataItem) -> None:
+    def _axis_setup(self, item: ls.DataItem) -> None:
         # check if need to discover the y_names
         if self.y_names is None:
             # we will plot all keys of the input
@@ -457,7 +457,7 @@ class Plot(ds.FunctionTerm):
         for y_name in self.y_names:
             self.graph.add_line(label=y_name, x=[], y=[])
 
-    def add_data(self, item: ds.DataItem) -> None:
+    def add_data(self, item: ls.DataItem) -> None:
         if self.graph is None:
             # first plot
             self._axis_setup(item)
@@ -491,7 +491,7 @@ class Plot(ds.FunctionTerm):
             )
             raise KeyError(msg) from err
 
-    def f(self, item: ds.DataItem) -> ds.DataItem:
+    def f(self, item: ls.DataItem) -> ls.DataItem:
         self.add_data(item)
         return item
 
@@ -506,7 +506,7 @@ class BinaryPlot(Plot):
     def __init__(self, *argv, **argk) -> None:
         super().__init__(*argv, **argk)
 
-    def _axis_setup(self, item: ds.DataItem) -> None:
+    def _axis_setup(self, item: ls.DataItem) -> None:
         # check if need to discover the y_names
         if self.y_names is None:
             # we will plot all keys of the input
@@ -518,13 +518,13 @@ class BinaryPlot(Plot):
         for y_name in self.y_names:
             self.graph.add_line(label=y_name, x=[], y=[])
 
-    def f(self, item: ds.DataItem) -> ds.DataItem:
+    def f(self, item: ls.DataItem) -> ls.DataItem:
         self.add_data(item)
         return item
 
 
-class DeepPlot(ds.FunctionTerm):
-    then_fun: Callable[[Self, ds.DataItem], None] | None
+class DeepPlot(ls.FunctionTerm):
+    then_fun: Callable[[Self, ls.DataItem], None] | None
     graph: Graph
 
     def __init__(self, *argv, **argk) -> None:
@@ -566,7 +566,7 @@ class DeepPlot(ds.FunctionTerm):
         label = kwargs.get("label", None)
         self.graph.add_line(x=x, y=y, label=label)
 
-    def f(self, item: ds.DataItem) -> ds.DataItem:
+    def f(self, item: ls.DataItem) -> ls.DataItem:
         # do the plotting
         self.graph.clear()
         self._call_plot_dicts(item)
@@ -578,7 +578,7 @@ class DeepPlot(ds.FunctionTerm):
         # return all
         return item
 
-    def then(self, fun: Callable[[Self, ds.DataItem], None]) -> Self:
+    def then(self, fun: Callable[[Self, ls.DataItem], None]) -> Self:
         """run a function after the plotting"""
         self.then_fun = fun
         return self
@@ -592,7 +592,7 @@ def is_finite(num: float | np.number) -> bool:
 
 
 # show statistics
-def show_stats(circuit: ds.Term) -> None:
+def show_stats(circuit: ls.Term) -> None:
     global statistics_graph  # noqa: PLW0603
     statistics_graph = StatisticsGraph(circuit)
 

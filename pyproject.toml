@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-vcs", "hatch-requirements-txt"]
 build-backend = "hatchling.build"
 
 [project]
-name = "datasponge-core"
+name = "logicsponge-core"
 dynamic = ["version", "dependencies"]
 requires-python = ">=3.11"
 authors = [
@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/innatelogic/datasponge-core.git"
+Repository = "https://github.com/innatelogic/logicsponge-core.git"
 
 [tool.hatch.metadata.hooks.requirements_txt]
 files = ["requirements.txt"]
@@ -39,7 +39,7 @@ venvPath = "."
 venv = "venv"
 
 [tool.hatch.build.targets.wheel]
-packages = ["datasponge"]
+packages = ["logicsponge"]
 
 [tool.ruff]
 line-length = 120
@@ -576,7 +576,7 @@ select = [
 ban-relative-imports = "all"
 
 [tool.ruff.lint.isort]
-known-first-party = ["datasponge"]
+known-first-party = ["logicsponge"]
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false

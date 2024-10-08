@@ -10,7 +10,7 @@ import matplotlib.lines
 import matplotlib.pyplot as plt
 import numpy as np
 
-import datasponge.core as ds
+import logicsponge.core as ds
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class PlotParams(TypedDict):
     kwargs: dict
 
 
-class Plot(ds.FunctionTerm):
+class Plot(ls.FunctionTerm):
     """plot data items
 
     typical uses are:
@@ -62,7 +62,7 @@ class Plot(ds.FunctionTerm):
         self.incremental = incremental
         self.fig, self.ax = plt.subplots()
 
-    def _axis_setup(self, item: ds.DataItem) -> None:
+    def _axis_setup(self, item: ls.DataItem) -> None:
         # check if need to discover the y_names
         if self.y_names is None:
             # we will plot all keys of the input
@@ -82,7 +82,7 @@ class Plot(ds.FunctionTerm):
         self.ax.legend(self.y_names)
         self.ax.set_title(self.name)
 
-    def plot(self, item: ds.DataItem) -> None:
+    def plot(self, item: ls.DataItem) -> None:
         to_plot = item["plot"]
         self._axis_setup(to_plot)
 
@@ -127,7 +127,7 @@ class Plot(ds.FunctionTerm):
         # self.fig.canvas.flush_events()
         self.fig.canvas.draw_idle()
 
-    def add_data(self, item: ds.DataItem) -> None:
+    def add_data(self, item: ls.DataItem) -> None:
         if len(self.state["x"]) == 0:
             # first plot
             self._axis_setup(item)
@@ -173,7 +173,7 @@ class Plot(ds.FunctionTerm):
         # self.fig.canvas.flush_events()
         self.fig.canvas.draw_idle()
 
-    def f(self, item: ds.DataItem) -> ds.DataItem:
+    def f(self, item: ls.DataItem) -> ls.DataItem:
         if self.incremental:
             self.add_data(item)
         else:
@@ -181,10 +181,10 @@ class Plot(ds.FunctionTerm):
         return item
 
 
-class DeepPlot(ds.FunctionTerm):
+class DeepPlot(ls.FunctionTerm):
     fig: matplotlib.figure.Figure | None
     ax: matplotlib.axes.Axes | None
-    then_fun: Callable[[Self, ds.DataItem], None] | None
+    then_fun: Callable[[Self, ls.DataItem], None] | None
 
     def __init__(self, *argv, **argk) -> None:
         super().__init__(*argv, **argk)
@@ -237,7 +237,7 @@ class DeepPlot(ds.FunctionTerm):
         self.ax.plot(x, y, *args, **kwargs)
         self.fig.canvas.draw_idle()
 
-    def f(self, item: ds.DataItem) -> ds.DataItem:
+    def f(self, item: ls.DataItem) -> ls.DataItem:
         # potentially clear the axis
         if self.ax is not None:
             self.ax.clear()
@@ -252,7 +252,7 @@ class DeepPlot(ds.FunctionTerm):
         # return all
         return item
 
-    def then(self, fun: Callable[[Self, ds.DataItem], None]) -> Self:
+    def then(self, fun: Callable[[Self, ls.DataItem], None]) -> Self:
         """run a function after the plotting"""
         self.then_fun = fun
         return self

@@ -2,12 +2,12 @@ import csv
 import logging
 import time
 
-import datasponge.core as ds
+import logicsponge.core as ds
 
 logger = logging.getLogger(__name__)
 
 
-class CSVStreamer(ds.SourceTerm):
+class CSVStreamer(ls.SourceTerm):
     def __init__(self, *args, file_path: str, delay: float = 0, poll_delay: float = 1, **kwargs):
         super().__init__(*args, **kwargs)
         self.file_path = file_path
@@ -26,7 +26,7 @@ class CSVStreamer(ds.SourceTerm):
                     reader = csv.DictReader(csvfile)
                     for row in reader:
                         time.sleep(self.delay)
-                        out = ds.DataItem(row)
+                        out = ls.DataItem(row)
                         self.output(out)
 
                     self.position = csvfile.tell()

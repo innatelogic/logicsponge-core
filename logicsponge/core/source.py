@@ -9,7 +9,7 @@ import watchdog.events
 import watchdog.observers
 from watchdog.observers.api import BaseObserver
 
-import datasponge.core as ds
+import logicsponge.core as ds
 
 
 class FileWatchHandler(watchdog.events.FileSystemEventHandler):
@@ -28,14 +28,14 @@ class FileWatchHandler(watchdog.events.FileSystemEventHandler):
         with open(self.file_path, encoding=self.encoding) as file:
             data = file.read()
             timestamp = os.path.getmtime(self.file_path)
-            self.source.output(ds.DataItem({"Time": timestamp, "string": data}))
+            self.source.output(ls.DataItem({"Time": timestamp, "string": data}))
 
     def on_modified(self, event: watchdog.events.FileSystemEvent) -> None:
         if event.src_path == self.file_path:
             self.read_file()
 
 
-class FileWatchSource(ds.SourceTerm):
+class FileWatchSource(ls.SourceTerm):
     observer: BaseObserver
     handler: FileWatchHandler
 
@@ -62,7 +62,7 @@ class FileWatchSource(ds.SourceTerm):
         time.sleep(60)  # TODO: better way?
 
 
-class GoogleDriveSource(ds.SourceTerm):
+class GoogleDriveSource(ls.SourceTerm):
     poll_interval_sec: int
     google_drive_link: str | None
     local_filename: str
@@ -93,34 +93,34 @@ class GoogleDriveSource(ds.SourceTerm):
             with open(self.local_filename, encoding=encoding) as file:
                 file_contents = file.read()
 
-            self.output(ds.DataItem({"Time": time.time(), "string": file_contents}))
+            self.output(ls.DataItem({"Time": time.time(), "string": file_contents}))
 
         finally:
             time.sleep(self.poll_interval_sec)
 
 
-class StringDiff(ds.FunctionTerm):
+class StringDiff(ls.FunctionTerm):
     old_string: str  # state
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.old_string = ""
 
-    def f(self, data: ds.DataItem) -> ds.DataItem:
+    def f(self, data: ls.DataItem) -> ls.DataItem:
         new_string = data["string"]
         ret_string = new_string[len(self.old_string) :] if new_string.startswith(self.old_string) else new_string
         self.old_string = new_string
-        return ds.DataItem({**data, "string": ret_string})
+        return ls.DataItem({**data, "string": ret_string})
 
 
-class LineSplitter(ds.FunctionTerm):
-    def f(self, data: ds.DataItem) -> None:
+class LineSplitter(ls.FunctionTerm):
+    def f(self, data: ls.DataItem) -> None:
         lines = data["string"].replace("\r\n", "\n").split("\n")
         for line in lines:
-            self.output(ds.DataItem({**data, "string": line}))
+            self.output(ls.DataItem({**data, "string": line}))
 
 
-class LineParser(ds.FunctionTerm):
+class LineParser(ls.FunctionTerm):
     comment: str
     delimiter: str
     has_header: bool
@@ -133,7 +133,7 @@ class LineParser(ds.FunctionTerm):
         self.has_header = kwargs.get("has_header", True)
         self.header = None
 
-    def f(self, data: ds.DataItem) -> ds.DataItem | None:
+    def f(self, data: ls.DataItem) -> ls.DataItem | None:
         line = data["string"]
         if len(line) > 0 and line[0] == self.comment:
             # comment line
@@ -153,4 +153,4 @@ class LineParser(ds.FunctionTerm):
             msg = f'line has more cols than header: "{line}"'
             raise ValueError(msg)
 
-        return ds.DataItem({self.header[i]: line_list[i] for i in range(len(line_list))})
+        return ls.DataItem({self.header[i]: line_list[i] for i in range(len(line_list))})
