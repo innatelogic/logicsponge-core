@@ -1,0 +1,99 @@
+#stats-svg {
+  width: 100%;
+  height: 600px;
+  overflow: hidden;
+  background-color: rgb(245, 242, 240);
+  border-radius: 7px;
+}
+
+#stats-svg text {
+  font-weight: 100;
+  font-size: 14px;
+}
+
+#stats-svg .node {
+  min-height: 80px;
+}
+
+.node.term {
+  fill: #fff;
+}
+.node.term.Delay {
+  fill: black;
+}
+.node.term.DeepPlot {
+  fill: black;
+}
+.node.term.Plot {
+  fill: black;
+}
+
+#stats-svg .node g div {
+  width: 200px;
+  height: 40px;
+  color: #fff;
+}
+
+#stats-svg .node rect {
+  stroke-width: 1px;
+  stroke: #bbb;
+  fill: #666;
+}
+#stats-svg .node.running rect {
+  fill: #6f956d;
+  color: #6f956d;
+}
+#stats-svg .node.Delay rect {
+  fill: white;
+  color: white;
+}
+#stats-svg .node.DeepPlot rect {
+  fill: white;
+  color: white;
+}
+#stats-svg .node.Plot rect {
+  fill: white;
+  color: white;
+}
+
+#stats-svg .edgePath path {
+  stroke: #999;
+  stroke-width: 2px;
+  fill: #999;
+}
+
+.dash-spinner {
+  display: none !important;
+}
+
+/* #stats-container {
+  visibility: hidden;
+} */
+
+#graphs-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  background-color: rgb(245, 242, 240);
+  margin-bottom: 70px;
+  border-radius: 7px;
+}
+
+#_dash-app-content {
+  margin: 40px;
+}
+
+ul.node-tooltip {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.node-tooltip li {
+  margin: 2px 0;
+}
+
+#graph-latencies {
+  height: 800px;
+}
