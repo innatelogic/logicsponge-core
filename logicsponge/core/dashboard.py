@@ -31,6 +31,7 @@ class Line(TypedDict):
     x: list[float]
     y: list[float]
     label: str
+    style: dict[str, Any]
 
 
 def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -44,8 +45,16 @@ class Graph:
     uuid: str
     shapes: list[dict[str, Any]]
     stacked: bool
+    log_y: bool
+    range_y: list[float] | None
 
-    def __init__(self, name: str, stacked: bool = False) -> None:  # noqa: FBT001, FBT002
+    def __init__(
+        self,
+        name: str,
+        stacked: bool = False,  # noqa: FBT001, FBT002
+        log_y: bool = False,  # noqa: FBT001, FBT002
+        range_y: list[float] | None = None,
+    ) -> None:
         """
         stacked: if ploted lines are stacked as subgraphs instead of being plotted as overlays
         """
@@ -55,15 +64,19 @@ class Graph:
             self.lines = []
             self.shapes = []
             self.stacked = stacked
+            self.log_y = log_y
+            self.range_y = range_y
 
     def clear(self) -> None:
         with lock:
             self.lines = []
 
-    def add_line(self, x: list[float], y: list[float], label: str | None = None) -> None:
+    def add_line(
+        self, x: list[float], y: list[float], label: str | None = None, style: dict[str, Any] | None = None
+    ) -> None:
         with lock:
             new_label = label if label is not None else str(len(self.lines))
-            new_line: Line = {"x": x, "y": y, "label": new_label}
+            new_line: Line = {"x": x, "y": y, "label": new_label, "style": {} if style is None else style}
             self.lines.append(new_line)
 
     def get_line(self, label: str) -> Line | None:
@@ -93,7 +106,7 @@ class Graph:
             layout = go.Layout(
                 title=self.name,
                 xaxis={"title": "x"},
-                yaxis={"title": "y"},
+                yaxis={"title": "y", "type": "log" if self.log_y else "linear"},
                 margin={"l": 40, "b": 80, "t": 80, "r": 80},
                 hovermode="closest",
                 uirevision=True,
@@ -103,6 +116,7 @@ class Graph:
             for i, line in enumerate(self.lines):
                 color = standard_colors[i % len(standard_colors)]
                 rgb = hex_to_rgb(color)
+                style_mode = line["style"].get("mode", "lines")
                 if len(line["y"]) > 0 and isinstance(line["y"][0], list):
                     # muliple y values per x -> plot mean with errors
                     x = line["x"]
@@ -110,7 +124,7 @@ class Graph:
                     y_lower = [np.min(inner_list) for inner_list in line["y"]]
                     y_upper = [np.max(inner_list) for inner_list in line["y"]]
                     scatter_objects += [
-                        go.Scatter(x=line["x"], y=y, mode="lines+markers", name=line["label"], marker={"color": color}),
+                        go.Scatter(x=line["x"], y=y, mode=style_mode, name=line["label"], marker={"color": color}),
                         go.Scatter(
                             name="Upper Bound",
                             x=x,
@@ -135,9 +149,7 @@ class Graph:
 
                 else:
                     # single y value per x
-                    scatter_objects.append(
-                        go.Scatter(x=line["x"], y=line["y"], mode="lines+markers", name=line["label"])
-                    )
+                    scatter_objects.append(go.Scatter(x=line["x"], y=line["y"], mode=style_mode, name=line["label"]))
 
             return dcc.Graph(
                 id=f"graph-{self.uuid}",
@@ -152,13 +164,15 @@ class Graph:
             rows=len(self.lines), cols=1, shared_xaxes=True, subplot_titles=[line["label"] for line in self.lines]
         )
         for i, line in enumerate(self.lines):
+            style_mode = line["style"].get("mode", "lines")
+            style_line = line["style"].get("line", {"color": "black", "width": 1})
             fig.add_trace(
                 go.Scatter(
                     x=line["x"],
                     y=line["y"],
-                    mode="lines+markers",
+                    mode=style_mode,
                     name=line["label"],
-                    line={"color": "black", "width": 1},
+                    line=style_line,
                 ),
                 row=i + 1,
                 col=1,
@@ -264,8 +278,8 @@ sidebar = html.Div(
         html.Hr(),
         dbc.Nav(
             [
-                dbc.NavLink("Graphs", href="/", active="exact"),
-                dbc.NavLink("Stats", href="/stats", active="exact"),
+                dbc.NavLink("Plotting", href="/", active="exact"),
+                dbc.NavLink("Sponge", href="/sponge", active="exact"),
                 dbc.NavLink("Latencies", href="/latencies", active="exact"),
             ],
             vertical=True,
@@ -328,7 +342,7 @@ def register_graph(graph: Graph) -> None:
 def render_page_content(pathname):
     if pathname == "/":
         return page_graphs
-    if pathname == "/stats":
+    if pathname == "/sponge":
         return page_stats
     if pathname == "/latencies":
         return page_latencies
@@ -432,9 +446,20 @@ class Plot(ls.FunctionTerm):
     y_names: list[str] | None
     graph: Graph | None
     stacked: bool
+    style: dict[str, Any]
+    log_y: bool
+    range_y: list[float] | None
 
     def __init__(
-        self, *argv, x: str = "round", y: str | list[str] | None = None, stacked: bool = False, **argk
+        self,
+        *argv,
+        x: str = "round",
+        y: str | list[str] | None = None,
+        stacked: bool = False,
+        style: dict[str, Any] | None = None,
+        log_y: bool = False,
+        range_y: list[float] | None = None,
+        **argk,
     ) -> None:
         super().__init__(*argv, **argk)
         self.x_name = x
@@ -444,6 +469,9 @@ class Plot(ls.FunctionTerm):
             self.y_names = y
         self.graph = None
         self.stacked = stacked
+        self.style = {} if style is None else style
+        self.log_y = log_y
+        self.range_y = range_y
 
     def _axis_setup(self, item: ls.DataItem) -> None:
         # check if need to discover the y_names
@@ -452,10 +480,10 @@ class Plot(ls.FunctionTerm):
             # except for the x-key
             self.y_names = list(set(item.keys()) - {self.x_name})
 
-        self.graph = Graph(self.name, stacked=self.stacked)
+        self.graph = Graph(self.name, stacked=self.stacked, log_y=self.log_y, range_y=self.range_y)
         register_graph(self.graph)
         for y_name in self.y_names:
-            self.graph.add_line(label=y_name, x=[], y=[])
+            self.graph.add_line(label=y_name, x=[], y=[], style=self.style)
 
     def add_data(self, item: ls.DataItem) -> None:
         if self.graph is None:
