@@ -2,7 +2,7 @@
 
 import pytest
 
-import logicsponge.core as ds
+import logicsponge.core as ls
 
 
 def test_upper():
