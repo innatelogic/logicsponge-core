@@ -215,7 +215,7 @@ class StatisticsGraph:
 
     @property
     def term_list(self) -> list[ls.Term]:
-        result = []
+        result: list[ls.Term] = []
         StatisticsGraph.dfs(self.circuit, result=result)
         return result
 
@@ -274,7 +274,7 @@ CONTENT_STYLE = {
 
 sidebar = html.Div(
     [
-        html.H2("Circuits", className="display-4"),
+        html.H2("logicsponge", className="display-6"),
         html.Hr(),
         dbc.Nav(
             [
