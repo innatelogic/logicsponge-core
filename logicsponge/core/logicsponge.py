@@ -307,8 +307,8 @@ class DataStreamView:
                 root = conn.root()
                 root[self.id].pos_requested = self.pos + 1
 
-        with self.ls.new_data:
-            self.ls.new_data.wait_for(lambda: len(self.ds) > self.pos)
+        with self.ds.new_data:
+            self.ds.new_data.wait_for(lambda: len(self.ds) > self.pos)
 
             self.pos += 1
 
@@ -333,7 +333,7 @@ class DataStreamView:
         """Return the list of values associated with key in each DataItem
         (include_missing indicates whether None is included if the key/value doesn't exist)."""
 
-        with self.ls.lock.gen_rlock():
+        with self.ds.lock.gen_rlock():
             if include_missing:
                 return [item.get(key, None) for item in self[:]]
             return [item[key] for item in self[:] if key in item]
@@ -526,7 +526,7 @@ class FunctionTerm(Term):
         # set DataStream IDs
         self._output._set_id(f"{self.id}:output")  # noqa: SLF001
         for name, ds in self._inputs.items():
-            ls._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
+            ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
 
     def f(self, *args, **kwargs):
         raise NotImplementedError
@@ -556,8 +556,8 @@ class FunctionTerm(Term):
         self._output.restore_state_from_db()
 
         for ds in self._inputs.values():
-            ls.persistent = persistent
-            ls.restore_state_from_db()
+            ds.persistent = persistent
+            ds.restore_state_from_db()
 
         # different execute versions
         def execute_f_dataitem(stop_event: threading.Event) -> None:
@@ -765,7 +765,7 @@ class FunctionTerm(Term):
                 "latency_avg": self._latency_queue.avg,
                 "latency_max": self._latency_queue.max,
             },
-            "inputs": {dsv.ls.id: {"read": dsv.pos, "write": len(dsv.ds)} for dsv in self._inputs.values()},
+            "inputs": {dsv.ds.id: {"read": dsv.pos, "write": len(dsv.ds)} for dsv in self._inputs.values()},
         }
 
 
@@ -890,13 +890,13 @@ class Linearizer(FunctionTerm):
 
         dict_row = DataItem({"name": name, "data": dataitem}) if self.info else dataitem
 
-        self.linearized_input.ls.add_row(dict_row)
+        self.linearized_input.ds.add_row(dict_row)
 
     def _add_input(self, name: str, ds: DataStream):
         def new_data_callback(dataitem):
             self._callback_new_data(name, dataitem)
 
-        ls.new_data_callbacks.append(new_data_callback)
+        ds.new_data_callbacks.append(new_data_callback)
 
     def run(self, dss: dict[str, DataStreamView]):
         _ = dss  # otherwise unused
@@ -1071,7 +1071,7 @@ class Dump(FunctionTerm):
         super().__init__(*args, **kwargs)
 
     def run(self, ds: DataStreamView):
-        ls.next()
+        ds.next()
         self.print_fun(ds)
 
 
