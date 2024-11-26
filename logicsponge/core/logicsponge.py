@@ -457,6 +457,7 @@ class SourceTerm(Term):
             try:
                 while not stop_event.is_set():
                     self.run()
+                    # TODO: avoid busy waiting. Currently the user must ensure this.
             finally:
                 self.exit()
 
@@ -641,6 +642,7 @@ class FunctionTerm(Term):
             try:
                 while not stop_event.is_set():
                     self.run(inputs)
+                    # TODO: avoid busy waiting. Currently the user must ensure this.
             finally:
                 self.exit()
 
@@ -651,6 +653,7 @@ class FunctionTerm(Term):
             try:
                 while not stop_event.is_set():
                     self.run(inputs)
+                    # TODO: avoid busy waiting. Currently the user must ensure this.
             finally:
                 self.exit()
 
@@ -671,6 +674,7 @@ class FunctionTerm(Term):
             try:
                 while not stop_event.is_set():
                     self.run(inputs)
+                    # TODO: avoid busy waiting. Currently the user must ensure this.
             finally:
                 self.exit()
 
