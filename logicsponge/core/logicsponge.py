@@ -22,7 +22,6 @@ from readerwriterlock import rwlock
 # logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(
-    # filename='circuits.log',
     encoding="utf-8",
     format="%(message)s",
     level=logging.INFO,
@@ -136,14 +135,15 @@ class DataStream:
 
         logging.debug("restoring %s from database", self.id)
 
-        self.data = []
+        with self.lock.gen_wlock():
+            self.data = []
 
-        with self._owner.get_db().transaction() as conn:
-            root = conn.root()
-            if self.id in root:
-                self.data = list(root[self.id].data)
-            else:
-                root[self.id] = DataStreamPersistentState()
+            with self._owner.get_db().transaction() as conn:
+                root = conn.root()
+                if self.id in root:
+                    self.data = list(root[self.id].data)
+                else:
+                    root[self.id] = DataStreamPersistentState()
 
     def __len__(self) -> int:
         """Return the number of rows in the DataStream."""
