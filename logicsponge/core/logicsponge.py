@@ -10,9 +10,10 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import Enum
 from functools import reduce
 from threading import Condition
-from typing import Any, TypedDict, TypeVar, overload
+from typing import Any, Self, TypedDict, TypeVar, overload
 
 import persistent.list
 import ZODB
@@ -27,8 +28,10 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-# types
-# DataItem = dict[str, Any]
+
+# end of stream
+class Control(Enum):
+    EOS = "_EOS_"
 
 
 class LatencyQueue:
@@ -75,10 +78,28 @@ class LatencyQueue:
 
 class DataItem(dict):
     _time: float
+    _control: set[Control]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # by default not a control data item
+        self._control = set()
+        # set time to now
         self.to_now()
+
+    @property
+    def is_control(self) -> bool:
+        """Returns if the data item is a control item."""
+        return len(self._control) > 0
+
+    def is_set(self, control: Control) -> bool:
+        """Returns if control is set in the data item."""
+        return control in self._control
+
+    def control(self, control: Control | set[Control]) -> Self:
+        """Makes the data item a control item with the given control flags."""
+        self._control = control if isinstance(control, set) else {control}
+        return self
 
     @property
     def time(self) -> float:
@@ -95,6 +116,7 @@ class DataItem(dict):
         """Creates a copy of the current DataItem with a new time."""
         new_copy = DataItem(self)
         new_copy.to_now()
+        new_copy._control = self._control  # noqa: SLF001
         return new_copy
 
 
@@ -403,7 +425,7 @@ class Term(ABC):
 
     @abstractmethod
     def stop(self):
-        """stops execution of the term"""
+        """Signals a Term to stop its execution."""
 
     def cancel(self):
         """cancels the term"""
@@ -464,18 +486,22 @@ class SourceTerm(Term):
         # check if no thread is already running
         if self._thread is None:
             # create a new thread
-            self._thread = threading.Thread(target=execute, args=(self._stop_event,))
+            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
             self._thread.start()
 
     def stop(self):
         self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join()
-        logging.debug("%s terminated", self)
+        logging.debug("%s stopped", self)
 
-    def output(self, data: DataItem):
+    def output(self, data: DataItem) -> None:
         data.to_now()
         self._output.add_row(data)
+
+    def eos(self) -> None:
+        """Signal an EOS (end of stream) for this source."""
+        eos_di = DataItem().control(Control.EOS)
+        self.output(eos_di)
+        self.stop()
 
     @property
     def stats(self) -> dict:
@@ -529,6 +555,12 @@ class FunctionTerm(Term):
         for name, ds in self._inputs.items():
             ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
 
+    def eos(self) -> None:
+        """Signal an EOS (end of stream) for the function term."""
+        eos_di = DataItem().control(Control.EOS)
+        self.output(eos_di)
+        self.stop()
+
     def f(self, *args, **kwargs):
         raise NotImplementedError
 
@@ -537,9 +569,7 @@ class FunctionTerm(Term):
 
     def stop(self):
         self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join()
-        logging.debug("%s terminated", self)
+        logging.debug("%s stopped", self)
 
     def enter(self):
         """overwrite this function to initialize the function term's thread"""
@@ -573,12 +603,19 @@ class FunctionTerm(Term):
             try:
                 while not stop_event.is_set():
                     input_stream.next()
-                    # pass the last data item from the stream to f
                     self._latency_queue.tic()
-                    out = self.f(input_stream[-1])
-                    self._latency_queue.toc()
-                    if out is not None:
-                        self.output(out)
+
+                    last_di = input_stream[-1]
+                    if last_di.is_set(Control.EOS):
+                        # received an EOS
+                        self.eos()
+                    else:
+                        # pass the last data item from the stream to f
+                        out = self.f(last_di)
+                        if out is not None:
+                            self.output(out)
+                        # measure latency only for f(), not for control
+                        self._latency_queue.toc()
             finally:
                 self.exit()
 
@@ -591,11 +628,18 @@ class FunctionTerm(Term):
                     for input_stream in inputs:
                         input_stream.next()
                     self._latency_queue.tic()
+
                     input_values = tuple([input_stream[-1] for input_stream in inputs])
-                    out = self.f(input_values)
-                    self._latency_queue.toc()
-                    if out is not None:
-                        self.output(out)
+
+                    if any(di.is_set(Control.EOS) for di in input_values):
+                        # we stop if any input stream signals EOS
+                        self.eos()
+                    else:
+                        out = self.f(input_values)
+                        if out is not None:
+                            self.output(out)
+                        # measure latency only for f(), not for control
+                        self._latency_queue.toc()
             finally:
                 self.exit()
 
@@ -609,10 +653,14 @@ class FunctionTerm(Term):
                         input_stream.next()
                     self._latency_queue.tic()
                     input_values = tuple([input_stream[-1] for input_stream in inputs])
-                    out = self.f(*input_values)
-                    self._latency_queue.toc()
-                    if out is not None:
-                        self.output(out)
+                    if any(di.is_set(Control.EOS) for di in input_values):
+                        # we stop if any input stream signals EOS
+                        self.eos()
+                    else:
+                        out = self.f(*input_values)
+                        if out is not None:
+                            self.output(out)
+                        self._latency_queue.toc()
             finally:
                 self.exit()
 
@@ -626,10 +674,14 @@ class FunctionTerm(Term):
                         input_stream.next()
                     self._latency_queue.tic()
                     input_dict = {key: input_stream[-1] for key, input_stream in inputs.items()}
-                    out = self.f(input_dict)
-                    self._latency_queue.toc()
-                    if out is not None:
-                        self.output(out)
+                    if any(di.is_set(Control.EOS) for di in input_dict.values()):
+                        # we stop if any input stream signals EOS
+                        self.eos()
+                    else:
+                        out = self.f(input_dict)
+                        if out is not None:
+                            self.output(out)
+                        self._latency_queue.toc()
             finally:
                 self.exit()
 
@@ -746,7 +798,7 @@ class FunctionTerm(Term):
         # check if no thread is already running
         if self._thread is None:
             # create a new thread
-            self._thread = threading.Thread(target=execute, args=(self._stop_event,))
+            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
             self._thread.start()
 
     def next(self, input_stream: DataStreamView) -> None:
@@ -792,7 +844,8 @@ class CompositeTerm(Term):
         self.term_left.start(persistent=persistent)
         self.term_right.start(persistent=persistent)
 
-    def stop(self):
+    def stop(self) -> None:
+        # signal components to stop
         self.term_left.stop()
         self.term_right.stop()
 
