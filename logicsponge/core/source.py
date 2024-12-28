@@ -69,7 +69,8 @@ class FileWatchSource(ls.SourceTerm):
         self.observer.join()
 
     def run(self):
-        time.sleep(60)  # TODO: better way?
+        while True:
+            time.sleep(60)  # TODO: better way?
 
 
 class CSVStreamer(ls.SourceTerm):
@@ -119,25 +120,26 @@ class GoogleDriveSource(ls.SourceTerm):
         gdown.download(url=self.google_drive_link, output=self.local_filename, fuzzy=True, quiet=True)
 
     def run(self) -> None:
-        if self.google_drive_link is None:
-            return
+        while True:
+            if self.google_drive_link is None:
+                return
 
-        try:
-            self.download()
+            try:
+                self.download()
 
-            encoding = None
-            with open(self.local_filename, "rb") as file:
-                raw_file_contents = file.read()
-                encoding = chardet.detect(raw_file_contents)["encoding"]
+                encoding = None
+                with open(self.local_filename, "rb") as file:
+                    raw_file_contents = file.read()
+                    encoding = chardet.detect(raw_file_contents)["encoding"]
 
-            file_contents = ""
-            with open(self.local_filename, encoding=encoding) as file:
-                file_contents = file.read()
+                file_contents = ""
+                with open(self.local_filename, encoding=encoding) as file:
+                    file_contents = file.read()
 
-            self.output(ls.DataItem({"Time": time.time(), "string": file_contents}))
+                self.output(ls.DataItem({"Time": time.time(), "string": file_contents}))
 
-        finally:
-            time.sleep(self.poll_interval_sec)
+            finally:
+                time.sleep(self.poll_interval_sec)
 
 
 class StringDiff(ls.FunctionTerm):

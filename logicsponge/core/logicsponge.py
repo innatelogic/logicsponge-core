@@ -474,12 +474,11 @@ class SourceTerm(Term):
         self._output.persistent = persistent
         self._output.restore_state_from_db()
 
-        def execute(stop_event: threading.Event):
+        def execute(stop_event: threading.Event):  # noqa: ARG001
             self.enter()
             try:
-                while not stop_event.is_set():
-                    self.run()
-                    # TODO: avoid busy waiting. Currently the user must ensure this.
+                self.run()
+                self.eos()
             finally:
                 self.exit()
 
@@ -685,48 +684,45 @@ class FunctionTerm(Term):
             finally:
                 self.exit()
 
-        def execute_run_datastream(stop_event: threading.Event) -> None:
+        def execute_run_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
             if inputs is None:
                 return
 
             self.enter()
             try:
-                while not stop_event.is_set():
-                    self.run(inputs)
-                    # TODO: avoid busy waiting. Currently the user must ensure this.
+                self.run(inputs)
+                self.eos()
             finally:
                 self.exit()
 
-        def execute_run_tuple_datastream(stop_event: threading.Event) -> None:
+        def execute_run_tuple_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs = tuple(self._inputs.values())
 
             self.enter()
             try:
-                while not stop_event.is_set():
-                    self.run(inputs)
-                    # TODO: avoid busy waiting. Currently the user must ensure this.
+                self.run(inputs)
+                self.eos()
             finally:
                 self.exit()
 
-        def execute_run_args_datastream(stop_event: threading.Event) -> None:
+        def execute_run_args_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs = tuple(self._inputs.values())
 
             self.enter()
             try:
-                while not stop_event.is_set():
-                    self.run(*inputs)
+                self.run(*inputs)
+                self.eos()
             finally:
                 self.exit()
 
-        def execute_run_dict_datastream(stop_event: threading.Event) -> None:
+        def execute_run_dict_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs: dict[str, DataStreamView] = self._inputs
 
             self.enter()
             try:
-                while not stop_event.is_set():
-                    self.run(inputs)
-                    # TODO: avoid busy waiting. Currently the user must ensure this.
+                self.run(inputs)
+                self.eos()
             finally:
                 self.exit()
 
@@ -1128,8 +1124,9 @@ class Dump(FunctionTerm):
         super().__init__(*args, **kwargs)
 
     def run(self, ds: DataStreamView):
-        ds.next()
-        self.print_fun(ds)
+        while True:
+            ds.next()
+            self.print_fun(ds)
 
 
 class Rename(FunctionTerm):
