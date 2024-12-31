@@ -3,7 +3,6 @@ import math
 from collections.abc import Callable
 from typing import Self, TypedDict
 
-# import matplotlib as mpl
 import matplotlib.axes
 import matplotlib.figure
 import matplotlib.lines
@@ -15,9 +14,9 @@ import logicsponge.core as ls
 logger = logging.getLogger(__name__)
 
 
-class PlotState(TypedDict):
-    x: list[float]
-    y: dict[str, list[float]]
+# class PlotState(TypedDict):
+#     x: list[float]
+#     y: dict[str, list[float]]
 
 
 class PlotParams(TypedDict):
@@ -39,7 +38,6 @@ class Plot(ls.FunctionTerm):
 
     x_name: str
     y_names: list[str] | None
-    state: PlotState
     lines: dict[str, matplotlib.lines.Line2D]
     fig: matplotlib.figure.Figure | None
     ax: matplotlib.axes.Axes | None

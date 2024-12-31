@@ -54,11 +54,11 @@ class Sum(ls.FunctionTerm):
     def __init__(self, *args, key: str, **kwargs):
         super().__init__(*args, **kwargs)
         self.key = key
-        self.state = 0.0  # initially, sum is 0
+        self.state["value"] = 0.0  # initially, sum is 0
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
-        self.state += item[self.key]
-        return ls.DataItem({"sum": self.state})
+        self.state["value"] += item[self.key]
+        return ls.DataItem({"sum": self.state["value"]})
 
 
 class Mean(BaseStatistic):

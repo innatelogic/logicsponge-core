@@ -34,6 +34,9 @@ class Control(Enum):
     EOS = "_EOS_"
 
 
+State = dict[str, Any]
+
+
 class LatencyQueue:
     queue: deque
     tic_time: float | None
@@ -438,6 +441,7 @@ class SourceTerm(Term):
     _thread: threading.Thread | None
     _output: DataStream
     _stop_event: threading.Event
+    state: State
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -445,6 +449,7 @@ class SourceTerm(Term):
         self._outputs[self.name] = self._output
         self._thread = None  # initially no thread is running
         self._stop_event = threading.Event()
+        self.state = {}
 
     def _add_input(self, name: str, ds: DataStream) -> None:  # noqa: ARG002
         msg = f"Cannot add inputs to a SourceTerm: '{name}'"
@@ -530,6 +535,7 @@ class FunctionTerm(Term):
     _thread: threading.Thread | None
     _stop_event: threading.Event
     _latency_queue: LatencyQueue
+    state: State
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -539,6 +545,7 @@ class FunctionTerm(Term):
         self._thread = None  # initially no thread is running
         self._stop_event = threading.Event()
         self._latency_queue = LatencyQueue()
+        self.state = {}
 
     def _add_input(self, name: str, ds: DataStream) -> None:
         if name in self._inputs:
