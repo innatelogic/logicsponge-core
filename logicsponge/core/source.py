@@ -74,14 +74,18 @@ class FileWatchSource(ls.SourceTerm):
 
 
 class CSVStreamer(ls.SourceTerm):
-    def __init__(self, *args, file_path: str, delay: float = 0, poll_delay: float = 1, **kwargs):
+    file_path: str
+    poll_delay: float
+    position: int
+
+    def __init__(self, *args, file_path: str, poll_delay: float = 1, **kwargs):
         super().__init__(*args, **kwargs)
         self.file_path = file_path
-        self.delay = delay
         self.poll_delay = poll_delay
         self.position = 0
 
     def run(self):
+        # TODO: unclear about updates within line. Not explicitely managed.
         while True:
             try:
                 with open(self.file_path) as csvfile:
@@ -91,7 +95,6 @@ class CSVStreamer(ls.SourceTerm):
                     # Read new lines if available
                     reader = csv.DictReader(csvfile)
                     for row in reader:
-                        time.sleep(self.delay)
                         out = ls.DataItem(row)
                         self.output(out)
 
