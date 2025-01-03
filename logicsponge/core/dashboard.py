@@ -246,7 +246,7 @@ external_scripts: list[str | dict[str, Any]] | None = [
 ]
 app = dash.Dash(
     __name__,
-    title="Circuits",
+    title="logicsponge",
     update_title=None,  # type: ignore
     suppress_callback_exceptions=True,
     external_scripts=external_scripts,
@@ -360,7 +360,7 @@ def render_page_content(pathname):
 # Callback to update the layout with all graphs
 @app.callback(Output("graphs-container", "children"), [Input("interval-graphs", "n_intervals")])
 def update_graphs(n):  # noqa: ARG001
-    logger.info("update_graphs")
+    logger.debug("update_graphs")
     with lock:
         graphs_html = []
         for graph in graphs:
@@ -375,7 +375,7 @@ def update_graphs(n):  # noqa: ARG001
 
 @app.callback(Output("latencies-container", "children"), [Input("interval-latencies", "n_intervals")])
 def update_latencies(n):  # noqa: ARG001
-    logger.info("update_latencies")
+    logger.debug("update_latencies")
     if statistics_graph is None:
         return html.Div([])
 

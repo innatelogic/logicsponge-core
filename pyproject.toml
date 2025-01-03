@@ -28,6 +28,9 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/innatelogic/logicsponge-core.git"
 
+[tool.hatch.metadata]
+core-metadata-version = "2.4"
+
 [tool.hatch.metadata.hooks.requirements_txt]
 files = ["requirements.txt"]
 
@@ -510,7 +513,6 @@ select = [
   "TRY201",
   "TRY300",
   "TRY301",
-  "TRY302",
   "TRY400",
   "TRY401",
   "UP001",
