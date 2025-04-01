@@ -828,6 +828,24 @@ class FunctionTerm(Term):
         }
 
 
+class DynamicForkTerm(FunctionTerm):
+    filter_key: str
+    spawn_fun: Callable[[str], Term]
+    spawned_terms: dict[str, Term]
+
+    def __init__(self, filter_key: str, spawn_fun: Callable[[str], Term], *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.filter_key = filter_key
+        self.spawn_fun = spawn_fun
+        self.spawned_terms = {}
+
+    def run(self, ds: DataStreamView):
+        pass
+
+    def eos(self) -> None:
+        pass
+
+
 class CompositeTerm(Term):
     term_left: Term
     term_right: Term
