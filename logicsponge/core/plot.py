@@ -196,7 +196,7 @@ class DeepPlot(ls.FunctionTerm):
 
         self.ax.set_title(self.name)
 
-    def _call_plot_dicts(self, d: dict) -> None:
+    def _call_plot_dicts(self, d: dict | ls.DataItem) -> None:
         if isinstance(d, dict):
             for k in d:
                 if k == "plot":

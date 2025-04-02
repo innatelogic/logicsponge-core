@@ -561,7 +561,7 @@ class DeepPlot(ls.FunctionTerm):
     def _axis_setup(self, params: PlotParams) -> None:
         pass
 
-    def _call_plot_dicts(self, d: dict) -> None:
+    def _call_plot_dicts(self, d: dict | ls.DataItem) -> None:
         if isinstance(d, dict):
             for k in d:
                 if k == "plot":
