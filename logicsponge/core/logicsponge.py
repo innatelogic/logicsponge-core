@@ -7,7 +7,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Hashable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -18,6 +18,7 @@ from typing import Any, Self, TypedDict, TypeVar, overload
 import persistent.list
 import ZODB
 import ZODB.FileStorage
+from frozendict import frozendict
 from readerwriterlock import rwlock
 
 # logging
@@ -79,16 +80,18 @@ class LatencyQueue:
         return max(latencies)
 
 
-class DataItem(dict):
+class DataItem:
     _time: float
     _control: set[Control]
+    _data: frozendict
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, data: dict | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # by default not a control data item
         self._control = set()
         # set time to now
         self.to_now()
+        self._data = frozendict(data) if data else frozendict()
 
     @property
     def is_control(self) -> bool:
@@ -121,6 +124,46 @@ class DataItem(dict):
         new_copy.to_now()
         new_copy._control = self._control  # noqa: SLF001
         return new_copy
+
+    def __repr__(self) -> str:
+        return f"DataItem({dict(self._data)})"
+
+    def __getitem__(self, key: Any) -> Any:
+        return self._data[key]
+
+    def __delitem__(self, key: Any) -> None:
+        new_data = dict(self._data)
+        del new_data[key]
+        self._data = frozendict(new_data)
+
+    def __contains__(self, key: Any) -> bool:
+        return key in self._data
+
+    def __iter__(self) -> Iterator:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, DataItem):
+            return self._data == other._data
+        return False
+
+    def __hash__(self) -> int:
+        return hash(frozenset(self._data.items()))
+
+    def items(self) -> Iterator[tuple[Any, Any]]:
+        return iter(self._data.items())
+
+    def keys(self) -> Iterator[Any]:
+        return iter(self._data.keys())
+
+    def values(self) -> Iterator[Any]:
+        return iter(self._data.values())
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        return self._data.get(key, default)
 
 
 class ViewStatistics(TypedDict):
@@ -200,14 +243,13 @@ class DataStream:
     def add_row(self, row_dict: DataItem):
         """Add a row to the DataStream by appending a copy of the dictionary."""
         # add to the dictionary
-        row_copy = row_dict.copy()
         with self.lock.gen_wlock():
             if self.persistent:
                 with self._owner.get_db().transaction() as conn:
                     root = conn.root()
-                    root[self.id].data.append(row_copy)
+                    root[self.id].data.append(row_dict)
 
-            self.data.append(row_copy)
+            self.data.append(row_dict)
 
         # notify all that there is new data
         with self.new_data:
@@ -215,7 +257,7 @@ class DataStream:
 
         # apply all callback functions
         for func in self.new_data_callbacks:
-            func(row_copy)
+            func(row_dict)
 
     def get_row(self, index: int) -> DataItem:
         """Return a row by its index."""
@@ -430,6 +472,10 @@ class Term(ABC):
     def stop(self):
         """Signals a Term to stop its execution."""
 
+    @abstractmethod
+    def join(self):
+        """Waits for a Term to stop its execution."""
+
     def cancel(self):
         """cancels the term"""
 
@@ -496,6 +542,9 @@ class SourceTerm(Term):
     def stop(self):
         self._stop_event.set()
         logging.debug("%s stopped", self)
+
+    def join(self):
+        self._thread.join()
 
     def output(self, data: DataItem) -> None:
         data.to_now()
@@ -576,6 +625,9 @@ class FunctionTerm(Term):
     def stop(self):
         self._stop_event.set()
         logging.debug("%s stopped", self)
+
+    def join(self):
+        self._thread.join()
 
     def enter(self):
         """overwrite this function to initialize the function term's thread"""
@@ -828,6 +880,134 @@ class FunctionTerm(Term):
         }
 
 
+class DynamicSpawnTerm(Term):
+    """
+    Spawns new terms for each unique filter_key. Dispatches the inputs and merges the outputs.
+
+    TODO: currently only a single input stream and a single output stream
+    """
+
+    _filter_key: str
+    _spawn_fun: Callable[[Hashable], Term]
+    _spawned_streams: dict[Hashable, DataStream]
+    _spawned_terms: dict[Hashable, Term]
+    _thread: threading.Thread | None
+
+    def __init__(self, filter_key: str, spawn_fun: Callable[[Hashable], Term], *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._filter_key = filter_key
+        self._spawn_fun = spawn_fun
+        self._spawned_streams = {}
+        self._spawned_terms = {}
+        self._thread = None
+
+        self._inputs = {}
+        self._stop_event = threading.Event()
+        self._latency_queue = LatencyQueue()
+        self.state = {}
+        self._output = DataStream(owner=self)
+        self._outputs[self.name] = self._output
+
+    def _add_input(self, name: str, ds: DataStream) -> None:
+        if name in self._inputs:
+            msg = f"Term {self.__class__}: tried to add input stream '{name}' but it already exists in the Term"
+            raise ValueError(msg)
+        self._inputs[name] = DataStreamView(ds=ds, owner=self)
+
+    def _set_id(self, new_id: str) -> None:
+        self.id = new_id
+
+        # set DataStream IDs
+        self._output._set_id(f"{self.id}:output")  # noqa: SLF001
+        for name, ds in self._inputs.items():
+            ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
+
+    def start(self, *, persistent: bool = False):
+        if persistent:
+            msg = "Persistence not implemented for DynamicSpawnTerms"
+            raise NotImplementedError(msg)
+
+        def execute(stop_event: threading.Event):  # noqa: ARG001
+            inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
+            if inputs is None:
+                return
+
+            self.enter()
+            try:
+                self.run(inputs)
+                self.eos()
+            finally:
+                self.exit()
+
+        # check if no thread is already running
+        if self._thread is None:
+            # create a new thread
+            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
+            self._thread.start()
+
+    def run(self, ds: DataStreamView):
+        ds.next()
+        while True:  # until received EOS
+            di = ds[-1]
+
+            if di.is_set(Control.EOS):
+                for ds in self._spawned_streams.values():
+                    ds.add_row(di)
+                break
+
+            iden = di[self._filter_key]
+            if iden not in self._spawned_terms:
+                new_ds = DataStream(self)
+                new_term = self._spawn_fun()
+                new_term._set_id(f"{new_term.id}:{iden}")  # noqa: SLF001
+                new_term._add_input(f"{ds}:{iden}", new_ds)  # noqa: SLF001
+                new_term._output = self._output  # noqa: SLF001
+                new_term.start()
+
+                self._spawned_streams[iden] = new_ds
+                self._spawned_terms[iden] = new_term
+
+            self._spawned_streams[iden].add_row(di)
+            ds.next()
+
+        for term in self._spawned_terms.values():
+            term.join()
+
+    def eos(self) -> None:
+        """Signal an EOS (end of stream) for the term."""
+        eos_di = DataItem().control(Control.EOS)
+        self._output.add_row(eos_di)
+        self.stop()
+
+    def enter(self):
+        """overwrite this function to initialize the term's thread"""
+
+    def exit(self):
+        """overwrite this function to clean up the term's thread"""
+
+    def stop(self):
+        self._stop_event.set()
+        logging.debug("%s stopped", self)
+
+    def join(self):
+        self._thread.join()
+
+    @property
+    def stats(self) -> dict:
+        term_type = self.__class__.__name__
+        return {
+            "name": self.name,
+            "type": term_type,
+            "output": {
+                "id": self._output.id,
+                "write": len(self._output),
+                "latency_avg": self._latency_queue.avg,
+                "latency_max": self._latency_queue.max,
+            },
+            "inputs": {dsv.ds.id: {"read": dsv.pos, "write": len(dsv.ds)} for dsv in self._inputs.values()},
+        }
+
+
 class CompositeTerm(Term):
     term_left: Term
     term_right: Term
@@ -851,6 +1031,10 @@ class CompositeTerm(Term):
         # signal components to stop
         self.term_left.stop()
         self.term_right.stop()
+
+    def join(self):
+        self.term_left.join()
+        self.term_right.join()
 
 
 class ParallelTerm(CompositeTerm):
@@ -913,6 +1097,9 @@ class Stop(Term):
 
     def stop(self) -> None:
         pass
+
+    def join(self):
+        return
 
 
 class ToSingleStream(FunctionTerm):
@@ -1130,10 +1317,8 @@ class Dump(FunctionTerm):
         self.print_fun = print_fun
         super().__init__(*args, **kwargs)
 
-    def run(self, ds: DataStreamView):
-        while True:
-            ds.next()
-            self.print_fun(ds)
+    def f(self, di: DataItem):
+        self.print_fun(di)
 
 
 class Rename(FunctionTerm):
