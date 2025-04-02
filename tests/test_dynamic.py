@@ -19,7 +19,7 @@ def test_run_dynamic():
                 self.output(ds)
                 inputs.append(ds)
 
-    dyn_spawn = ls.DynamicSpawnTerm(filter_key="subject_id", spawn_fun=lambda: ls.Id())
+    dyn_spawn = ls.DynamicSpawnTerm(filter_key="subject_id", spawn_fun=lambda _: ls.Id())
 
     outputs = []
     sink = ls.Dump(print_fun=lambda di: outputs.append(di))

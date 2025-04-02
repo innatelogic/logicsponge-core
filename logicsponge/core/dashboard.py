@@ -386,7 +386,7 @@ def update_latencies(n):  # noqa: ARG001
     sorted_pairs = sorted(zip(x, y, strict=False), key=lambda pair: pair[0])
     sorted_x = [pair[0] for pair in sorted_pairs]
     sorted_y = [pair[1] for pair in sorted_pairs]
-    sorted_y = [f"{len(sorted_y)-i}: {v}" for i, v in enumerate(sorted_y)]
+    sorted_y = [f"{len(sorted_y) - i}: {v}" for i, v in enumerate(sorted_y)]
     return html.Div(
         [
             dcc.Graph(
@@ -513,9 +513,7 @@ class Plot(ls.FunctionTerm):
                 self.graph.append_to_line(label=k, x=x, y=y)
         except KeyError as err:
             msg = (
-                f"Term with name '{self.name}': "
-                f"Could not plot the key {err}. "
-                f"The keys I found are {list(item.keys())}."
+                f"Term with name '{self.name}': Could not plot the key {err}. The keys I found are {list(item.keys())}."
             )
             raise KeyError(msg) from err
 

@@ -33,6 +33,7 @@ def test_run_dataitem():
 
     sponge = MySource() * MyF("a") * MyF("b")
     sponge.start()
+    sponge.join()
 
 
 if __name__ == "__main__":

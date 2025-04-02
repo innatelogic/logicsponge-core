@@ -85,13 +85,21 @@ class DataItem:
     _control: set[Control]
     _data: frozendict
 
-    def __init__(self, data: dict | None = None, *args, **kwargs):
+    def __init__(self, data: dict | Self | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # by default not a control data item
         self._control = set()
+
         # set time to now
         self.to_now()
-        self._data = frozendict(data) if data else frozendict()
+
+        # set data
+        if data is None:
+            self._data = frozendict()
+        elif isinstance(data, DataItem):
+            self._data = frozendict(data._data)  # noqa: SLF001
+        else:
+            self._data = frozendict(data)
 
     @property
     def is_control(self) -> bool:
@@ -122,7 +130,7 @@ class DataItem:
         """Creates a copy of the current DataItem with a new time."""
         new_copy = DataItem(self)
         new_copy.to_now()
-        new_copy._control = self._control  # noqa: SLF001
+        new_copy._control = self._control
         return new_copy
 
     def __repr__(self) -> str:
@@ -544,7 +552,8 @@ class SourceTerm(Term):
         logging.debug("%s stopped", self)
 
     def join(self):
-        self._thread.join()
+        if self._thread is not None:
+            self._thread.join()
 
     def output(self, data: DataItem) -> None:
         data.to_now()
@@ -627,7 +636,8 @@ class FunctionTerm(Term):
         logging.debug("%s stopped", self)
 
     def join(self):
-        self._thread.join()
+        if self._thread is not None:
+            self._thread.join()
 
     def enter(self):
         """overwrite this function to initialize the function term's thread"""
@@ -892,6 +902,8 @@ class DynamicSpawnTerm(Term):
     _spawned_streams: dict[Hashable, DataStream]
     _spawned_terms: dict[Hashable, Term]
     _thread: threading.Thread | None
+    _output: DataStream
+    _outputs: dict[str, DataStream]
 
     def __init__(self, filter_key: str, spawn_fun: Callable[[Hashable], Term], *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -951,17 +963,18 @@ class DynamicSpawnTerm(Term):
             di = ds[-1]
 
             if di.is_set(Control.EOS):
-                for ds in self._spawned_streams.values():
-                    ds.add_row(di)
+                for d in self._spawned_streams.values():
+                    d.add_row(di)
                 break
 
             iden = di[self._filter_key]
             if iden not in self._spawned_terms:
                 new_ds = DataStream(self)
-                new_term = self._spawn_fun()
+                new_term = self._spawn_fun(iden)
                 new_term._set_id(f"{new_term.id}:{iden}")  # noqa: SLF001
                 new_term._add_input(f"{ds}:{iden}", new_ds)  # noqa: SLF001
-                new_term._output = self._output  # noqa: SLF001
+                new_term._outputs = self._outputs  # noqa: SLF001
+                new_term._output = self._output  # type: ignore # noqa: SLF001 # TODO: may not have _output
                 new_term.start()
 
                 self._spawned_streams[iden] = new_ds
@@ -990,7 +1003,8 @@ class DynamicSpawnTerm(Term):
         logging.debug("%s stopped", self)
 
     def join(self):
-        self._thread.join()
+        if self._thread is not None:
+            self._thread.join()
 
     @property
     def stats(self) -> dict:
@@ -1361,9 +1375,9 @@ class AddIndex(FunctionTerm):
         self.index = index
 
     def f(self, item: DataItem) -> DataItem:
-        item[self.key] = self.index
+        di = DataItem({**item, self.key: self.index})
         self.index += 1
-        return item
+        return di
 
 
 class Delay(FunctionTerm):
@@ -1380,7 +1394,7 @@ class Delay(FunctionTerm):
         Parameters:
         -----------
         delay_s : float
-            The delay in seconls.
+            The delay in seconds.
         """
         super().__init__(*args, **kwars)
         self.delay_s = delay_s
@@ -1400,7 +1414,7 @@ def merge_dicts(outputs1: dict[KT, VT], outputs2: dict[KT, VT]) -> dict[KT, VT]:
     intersecting_keys = outputs1.keys() & outputs2.keys()
     for key in intersecting_keys:
         if outputs1[key] != outputs2[key]:
-            msg = f"Incompatible outputs detected for output stream '{key}'. More than one term writes to this ouput stream."
+            msg = f"Incompatible outputs detected for output stream '{key}'. More than one term writes to this output stream."
             raise ValueError(msg)
     return outputs1 | outputs2
 
