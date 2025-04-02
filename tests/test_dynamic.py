@@ -10,6 +10,10 @@ def test_create_dynamic():
 
 
 def test_run_dynamic():
+    # class MyPrint(ls.Print):
+    #     def exit(self):
+    #         print(self.id, self._output)
+
     inputs = []
 
     class MySource(ls.SourceTerm):
@@ -22,13 +26,14 @@ def test_run_dynamic():
     dyn_spawn = ls.DynamicSpawnTerm(filter_key="subject_id", spawn_fun=lambda _: ls.Id())
 
     outputs = []
+    # sink = ls.Dump(print_fun=lambda di: outputs.append(di))
     sink = ls.Dump(print_fun=lambda di: outputs.append(di))
 
     sponge = MySource() * dyn_spawn * sink
     sponge.start()
     sponge.join()
 
-    assert set(outputs) == set(inputs)
+    assert set(inputs) == set(outputs), f"\n{inputs}\n{outputs}"
 
 
 def main():

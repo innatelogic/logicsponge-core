@@ -298,7 +298,7 @@ class DataStream:
         """Return the entire DataStream as a list of dictionaries, including row numbers."""
         # Include row numbers starting from 0
         with self.lock.gen_rlock():
-            return [DataItem({"Row": i, **row}) for i, row in enumerate(self.data)]
+            return [DataItem({**row}) for _, row in enumerate(self.data)]
 
 
 @dataclass
@@ -974,7 +974,7 @@ class DynamicSpawnTerm(Term):
                 new_term._set_id(f"{new_term.id}:{iden}")  # noqa: SLF001
                 new_term._add_input(f"{ds}:{iden}", new_ds)  # noqa: SLF001
                 new_term._outputs = self._outputs  # noqa: SLF001
-                new_term._output = self._output  # type: ignore # noqa: SLF001 # TODO: may not have _output
+                new_term._output = self._output  # type: ignore # noqa: SLF001 # TODO: new_term may not have _output
                 new_term.start()
 
                 self._spawned_streams[iden] = new_ds
@@ -983,6 +983,7 @@ class DynamicSpawnTerm(Term):
             self._spawned_streams[iden].add_row(di)
             ds.next()
 
+        # wait for all spawned terms to terminate
         for term in self._spawned_terms.values():
             term.join()
 
