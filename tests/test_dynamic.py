@@ -10,8 +10,8 @@ def test_create_dynamic():
 
 
 def test_run_dynamic():
-
     inputs = []
+
     class MySource(ls.SourceTerm):
         def run(self):
             for i in range(10):
@@ -19,11 +19,7 @@ def test_run_dynamic():
                 self.output(ds)
                 inputs.append(ds)
 
-    class MyFunction(ls.FunctionTerm):
-        def f(self, di: ls.DataItem) -> ls.DataItem:
-            return ls.DataItem({**di, "treated": True})
-
-    dyn_spawn = ls.DynamicSpawnTerm(filter_key="subject_id", spawn_fun=lambda _: ls.Id())
+    dyn_spawn = ls.DynamicSpawnTerm(filter_key="subject_id", spawn_fun=lambda: ls.Id())
 
     outputs = []
     sink = ls.Dump(print_fun=lambda di: outputs.append(di))
@@ -32,5 +28,12 @@ def test_run_dynamic():
     sponge.start()
     sponge.join()
 
-
     assert set(outputs) == set(inputs)
+
+
+def main():
+    test_run_dynamic()
+
+
+if __name__ == "__main__":
+    main()

@@ -14,6 +14,7 @@ def test_source():
     sponge.start()
     sponge.join()
 
+
 def test_id():
     class MySource(ls.SourceTerm):
         def run(self):
@@ -25,6 +26,7 @@ def test_id():
     sponge.start()
     sponge.join()
 
+
 def test_parallel_id():
     class MySource(ls.SourceTerm):
         def run(self):
@@ -35,5 +37,3 @@ def test_parallel_id():
     sponge = MySource() * (ls.Id("a") | ls.Id("b"))
     sponge.start()
     sponge.join()
-
-

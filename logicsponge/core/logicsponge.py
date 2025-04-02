@@ -7,13 +7,13 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from functools import reduce
 from threading import Condition
-from typing import Any, Iterator, Self, TypedDict, TypeVar, overload
+from typing import Any, Self, TypedDict, TypeVar, overload
 
 import persistent.list
 import ZODB
@@ -164,6 +164,7 @@ class DataItem:
 
     def get(self, key: Any, default: Any = None) -> Any:
         return self._data.get(key, default)
+
 
 class ViewStatistics(TypedDict):
     read: int
@@ -879,22 +880,132 @@ class FunctionTerm(Term):
         }
 
 
-class DynamicSpawnTerm(FunctionTerm):
-    filter_key: str
-    spawn_fun: Callable[[Hashable], Term]
-    spawned_terms: dict[Hashable, Term]
+class DynamicSpawnTerm(Term):
+    """
+    Spawns new terms for each unique filter_key. Dispatches the inputs and merges the outputs.
+
+    TODO: currently only a single input stream and a single output stream
+    """
+
+    _filter_key: str
+    _spawn_fun: Callable[[Hashable], Term]
+    _spawned_streams: dict[Hashable, DataStream]
+    _spawned_terms: dict[Hashable, Term]
+    _thread: threading.Thread | None
 
     def __init__(self, filter_key: str, spawn_fun: Callable[[Hashable], Term], *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.filter_key = filter_key
-        self.spawn_fun = spawn_fun
-        self.spawned_terms = {}
+        self._filter_key = filter_key
+        self._spawn_fun = spawn_fun
+        self._spawned_streams = {}
+        self._spawned_terms = {}
+        self._thread = None
+
+        self._inputs = {}
+        self._stop_event = threading.Event()
+        self._latency_queue = LatencyQueue()
+        self.state = {}
+        self._output = DataStream(owner=self)
+        self._outputs[self.name] = self._output
+
+    def _add_input(self, name: str, ds: DataStream) -> None:
+        if name in self._inputs:
+            msg = f"Term {self.__class__}: tried to add input stream '{name}' but it already exists in the Term"
+            raise ValueError(msg)
+        self._inputs[name] = DataStreamView(ds=ds, owner=self)
+
+    def _set_id(self, new_id: str) -> None:
+        self.id = new_id
+
+        # set DataStream IDs
+        self._output._set_id(f"{self.id}:output")  # noqa: SLF001
+        for name, ds in self._inputs.items():
+            ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
+
+    def start(self, *, persistent: bool = False):
+        if persistent:
+            msg = "Persistence not implemented for DynamicSpawnTerms"
+            raise NotImplementedError(msg)
+
+        def execute(stop_event: threading.Event):  # noqa: ARG001
+            inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
+            if inputs is None:
+                return
+
+            self.enter()
+            try:
+                self.run(inputs)
+                self.eos()
+            finally:
+                self.exit()
+
+        # check if no thread is already running
+        if self._thread is None:
+            # create a new thread
+            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
+            self._thread.start()
 
     def run(self, ds: DataStreamView):
-        pass
+        ds.next()
+        while True:  # until received EOS
+            di = ds[-1]
 
-#    def eos(self) -> None:
-#        pass
+            if di.is_set(Control.EOS):
+                for ds in self._spawned_streams.values():
+                    ds.add_row(di)
+                break
+
+            iden = di[self._filter_key]
+            if iden not in self._spawned_terms:
+                new_ds = DataStream(self)
+                new_term = self._spawn_fun()
+                new_term._set_id(f"{new_term.id}:{iden}")  # noqa: SLF001
+                new_term._add_input(f"{ds}:{iden}", new_ds)  # noqa: SLF001
+                new_term._output = self._output  # noqa: SLF001
+                new_term.start()
+
+                self._spawned_streams[iden] = new_ds
+                self._spawned_terms[iden] = new_term
+
+            self._spawned_streams[iden].add_row(di)
+            ds.next()
+
+        for term in self._spawned_terms.values():
+            term.join()
+
+    def eos(self) -> None:
+        """Signal an EOS (end of stream) for the term."""
+        eos_di = DataItem().control(Control.EOS)
+        self._output.add_row(eos_di)
+        self.stop()
+
+    def enter(self):
+        """overwrite this function to initialize the term's thread"""
+
+    def exit(self):
+        """overwrite this function to clean up the term's thread"""
+
+    def stop(self):
+        self._stop_event.set()
+        logging.debug("%s stopped", self)
+
+    def join(self):
+        self._thread.join()
+
+    @property
+    def stats(self) -> dict:
+        term_type = self.__class__.__name__
+        return {
+            "name": self.name,
+            "type": term_type,
+            "output": {
+                "id": self._output.id,
+                "write": len(self._output),
+                "latency_avg": self._latency_queue.avg,
+                "latency_max": self._latency_queue.max,
+            },
+            "inputs": {dsv.ds.id: {"read": dsv.pos, "write": len(dsv.ds)} for dsv in self._inputs.values()},
+        }
 
 
 class CompositeTerm(Term):
