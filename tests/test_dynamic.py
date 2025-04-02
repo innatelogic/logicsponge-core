@@ -4,30 +4,33 @@ import logicsponge.core as ls
 
 
 def test_create_dynamic():
-    sponge = ls.DynamicForkTerm(filter_key="id", spawn_fun=lambda _: ls.Stop())
+    sponge = ls.DynamicSpawnTerm(filter_key="id", spawn_fun=lambda _: ls.Stop())
     sponge.start()
+    sponge.join()
 
 
 def test_run_dynamic():
+
+    inputs = []
     class MySource(ls.SourceTerm):
         def run(self):
             for i in range(10):
-                self.output(ls.DataItem({"subject_id": i, "data": 0}))
+                ds = ls.DataItem({"subject_id": i})
+                self.output(ds)
+                inputs.append(ds)
 
     class MyFunction(ls.FunctionTerm):
         def f(self, di: ls.DataItem) -> ls.DataItem:
             return ls.DataItem({**di, "treated": True})
 
-    fork = ls.DynamicForkTerm(filter_key="subject_id", spawn_fun=lambda _: MyFunction())
+    dyn_spawn = ls.DynamicSpawnTerm(filter_key="subject_id", spawn_fun=lambda _: ls.Id())
 
     outputs = []
-    sink = ls.Dump(print_fun=lambda ds: outputs.append(ds[-1]))
+    sink = ls.Dump(print_fun=lambda di: outputs.append(di))
 
-    sponge = MySource() * fork * sink
+    sponge = MySource() * dyn_spawn * sink
     sponge.start()
+    sponge.join()
 
-    print(outputs)
 
-
-if __name__ == "__main__":
-    test_create_dynamic()
+    assert set(outputs) == set(inputs)
