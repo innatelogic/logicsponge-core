@@ -1001,7 +1001,7 @@ class DataItemFilter(FunctionTerm):
             Filter to be applied to each key-value pair in data item.
         """
 
-        if data_item_filter is None and len(args) > 0 and has_callable_signature(args[0], (DataItem,), bool):
+        if data_item_filter is None and len(args) > 0 and has_callable_signature(args[0], (Any,), bool):
             data_item_filter = args[0]
             args = args[1:]
 
@@ -1168,7 +1168,7 @@ class AddIndex(FunctionTerm):
     """Add index key."""
 
     key: str
-    ind: int
+    index: int
 
     def __init__(self, *args, key: str, index: int = 0, **kwargs):
         super().__init__(*args, **kwargs)
