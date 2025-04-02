@@ -587,6 +587,24 @@ class SourceTerm(Term):
         }
 
 
+class ConstantSourceTerm(SourceTerm):
+    """Source term with pre-programmed list of data items."""
+
+    _items: list[DataItem]
+
+    def __init__(self, items: list[DataItem], *args, **kwargs):
+        """
+        items: list[DataItem]
+            List of data items to output.
+        """
+        super().__init__(*args, **kwargs)
+        self._items = items
+
+    def run(self):
+        for item in self._items:
+            self.output(item)
+
+
 class FunctionTerm(Term):
     _inputs: dict[str, DataStreamView]  # name -> input stream view
     _output: DataStream
@@ -970,11 +988,12 @@ class DynamicSpawnTerm(Term):
             iden = di[self._filter_key]
             if iden not in self._spawned_terms:
                 new_ds = DataStream(self)
-                new_term = self._spawn_fun(iden)
-                new_term._set_id(f"{new_term.id}:{iden}")  # noqa: SLF001
-                new_term._add_input(f"{ds}:{iden}", new_ds)  # noqa: SLF001
-                new_term._outputs = self._outputs  # noqa: SLF001
-                new_term._output = self._output  # type: ignore # noqa: SLF001 # TODO: new_term may not have _output
+                eos_filter = EosFilter()
+                new_term = self._spawn_fun(iden) * eos_filter
+                new_term._set_id(f"id:{iden}")  # noqa: SLF001
+                new_term._add_input(f"ds:{iden}", new_ds)  # noqa: SLF001
+                eos_filter._outputs = self._outputs  # noqa: SLF001
+                eos_filter._output = self._output  # type: ignore # noqa: SLF001 # TODO: new_term may not have _output
                 new_term.start()
 
                 self._spawned_streams[iden] = new_ds
@@ -986,6 +1005,8 @@ class DynamicSpawnTerm(Term):
         # wait for all spawned terms to terminate
         for term in self._spawned_terms.values():
             term.join()
+
+        self._output.add_row(DataItem().control(Control.EOS))
 
     def eos(self) -> None:
         """Signal an EOS (end of stream) for the term."""
@@ -1362,6 +1383,21 @@ class Id(FunctionTerm):
 
     def f(self, item: DataItem) -> DataItem:
         return item
+
+
+class EosFilter(Id):
+    """
+    Removes all EOS data items from the data stream.
+
+    Will stop at reception of EOS, but will not send one itself.
+    This is almost always undesired behavior; use with caution.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def eos(self):
+        self.stop()
 
 
 class AddIndex(FunctionTerm):

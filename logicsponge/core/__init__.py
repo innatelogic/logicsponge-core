@@ -2,6 +2,7 @@
 
 from logicsponge.core.logicsponge import (
     AddIndex,
+    ConstantSourceTerm,
     DataItem,
     DataItemFilter,
     DataStream,
@@ -9,6 +10,7 @@ from logicsponge.core.logicsponge import (
     Delay,
     Dump,
     DynamicSpawnTerm,
+    EosFilter,
     FunctionTerm,
     Id,
     KeyFilter,
@@ -30,6 +32,7 @@ from logicsponge.core.logicsponge import (
 
 __all__ = [
     "AddIndex",
+    "ConstantSourceTerm",
     "DataItem",
     "DataItemFilter",
     "DataStream",
@@ -37,6 +40,7 @@ __all__ = [
     "Delay",
     "Dump",
     "DynamicSpawnTerm",
+    "EosFilter",
     "FunctionTerm",
     "Id",
     "KeyFilter",
