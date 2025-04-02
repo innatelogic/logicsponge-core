@@ -129,8 +129,8 @@ class TestStatistic(ls.FunctionTerm):
 
             if self.dim == 0:
                 keys = ds_view[-1].keys()
-                if self.arity is not None and len(keys) != self.arity:
-                    msg = f"Arity of test statistic does not match number of inputs {len(keys)}"
+                if self.arity is not None and len(ds_view[-1]) != self.arity:
+                    msg = f"Arity of test statistic does not match number of inputs {len(ds_view[-1])}"
                     raise ValueError(msg)
                 series_list = [np.array(ds_view.key_to_list(key), dtype=float) for key in keys]
                 result = self.calculate(*series_list)
