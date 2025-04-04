@@ -22,6 +22,8 @@ import ZODB.FileStorage
 from frozendict import frozendict
 from readerwriterlock import rwlock
 
+from logicsponge.core.datastructures import Deque, DequeNode
+
 # logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -204,7 +206,7 @@ class HistoryBound(ABC):
 class NoneBound(HistoryBound):
     """Marks no DataItems for deletion."""
 
-    def bound_index(self, _: list[DataItem]) -> int:
+    def bound_index(self, history: list[DataItem]) -> int:
         return 0
 
 
@@ -224,44 +226,31 @@ class NumberBound(HistoryBound):
 
 class DataStream:
     id: None | str
-    data: deque[DataItem]
+    data: Deque[DataItem]
     lock: rwlock.RWLockFair
     new_data: Condition
     new_data_callbacks: list[Callable[[DataItem], None]]
     persistent: bool
     _owner: "Term"
     history_bound: HistoryBound
+    _pos_dsvs: list[DequeNode]
 
     def __init__(self, owner: "Term") -> None:
         self.id = None
-        self.data = deque()
+        self.data = Deque()
         self.lock = rwlock.RWLockFair()
         self.new_data = Condition()
         self.new_data_callbacks = []
         self.persistent = False
         self._owner = owner
         self.history_bound = NoneBound()
+        self._pos_dsvs = []
 
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
 
     def restore_state_from_db(self) -> None:
-        return  # TODO
-
-        if not self.id or not self.persistent:
-            return
-
-        logging.debug("restoring %s from database", self.id)
-
-        with self.lock.gen_wlock():
-            self.data = []
-
-            with self._owner.get_db().transaction() as conn:
-                root = conn.root()
-                if self.id in root:
-                    self.data = list(root[self.id].data)
-                else:
-                    root[self.id] = DataStreamPersistentState()
+        raise NotImplementedError
 
     def __len__(self) -> int:
         """Return the number of rows in the DataStream."""
@@ -291,8 +280,7 @@ class DataStream:
         return str(self.to_list())
 
     def add_row(self, row_dict: DataItem):
-        """Add a row to the DataStream by appending a copy of the dictionary."""
-        # add to the dictionary
+        """Add a row to the end of the DataStream."""
         with self.lock.gen_wlock():
             if self.persistent:
                 with self._owner.get_db().transaction() as conn:
@@ -320,7 +308,7 @@ class DataStream:
         """Returns the rows defined by the slice."""
         with self.lock.gen_rlock():
             start, stop, step = index.indices(len(self.data))
-            return deque(itertools.islice(self.data, start, stop, step))
+            return Deque(itertools.islice(self.data, start, stop, step))
 
     def set_history_bound(self, history_bound: HistoryBound) -> None:
         """
@@ -334,9 +322,13 @@ class DataStream:
 
     def clean_history(self) -> None:
         """Drops DataItems according to the current history bounds."""
+        with self.lock.gen_rlock():
+            prefix = self.data.slice_until_nodes(self._pos_dsvs, inclusive=True)
+            index = self.history_bound.bound_index(prefix)
+
         with self.lock.gen_wlock():
-            # TODO
-            pass
+            for _ in range(index):
+                self.data.popleft()
 
     def from_dict_of_lists(self, dict_of_lists: dict[str, list]):
         """Load data from a dictionary of lists into the DataStream."""
@@ -363,14 +355,14 @@ class DataStreamViewPersistentState(persistent.Persistent):
 class DataStreamView:
     id: str | None
     ds: DataStream
-    pos: int
+    pos: DequeNode[DataItem] | None
     persistent: bool
     _owner: "Term"
 
     def __init__(self, ds: DataStream, owner: "Term") -> None:
         self.id = None
         self.ds = ds
-        self.pos = 0
+        self.pos = None
         self.persistent = False
         self._owner = owner
 
@@ -378,27 +370,11 @@ class DataStreamView:
         self.id = new_id
 
     def restore_state_from_db(self) -> None:
-        if not self.id or not self.persistent:
-            return
-
-        logging.debug("restoring %s from database", self.id)
-
-        self.pos = 0
-
-        with self._owner.get_db().transaction() as conn:
-            root = conn.root()
-            if self.id in root:
-                if root[self.id].pos == root[self.id].pos_requested and root[self.id].pos > 0:
-                    # computation was interrupted
-                    self.pos = root[self.id].pos - 1
-                else:
-                    self.pos = root[self.id].pos
-            else:
-                root[self.id] = DataStreamViewPersistentState()
+        raise NotImplementedError
 
     def __len__(self) -> int:
         """Return the number of rows in the DataStreamView."""
-        return self.pos
+        raise NotImplementedError
 
     @overload
     def __getitem__(self, index: int) -> DataItem:
@@ -411,17 +387,32 @@ class DataStreamView:
     def __getitem__(self, index: int | slice) -> DataItem | list[DataItem]:
         """Enable bracket notation for accessing rows."""
         if isinstance(index, int):
-            if index >= 0:
-                if index < self.pos:
-                    return self.ds[index]
+            if self.pos is None:
                 raise IndexError(index)
-            if index >= -self.pos:
-                return self.ds[self.pos + index]
-            raise IndexError(self.pos + index)
+
+            if index >= 0:
+                with self.ds.lock.gen_rlock():
+                    node = self.ds.data.head
+                    for _ in range(index):
+                        if node is None or node is self.pos:
+                            raise IndexError(index)
+                        node = node.next
+                    if node is None:
+                        raise IndexError(index)
+                    return node.value
+            else:
+                with self.ds.lock.gen_rlock():
+                    node = self.pos
+                    if node is None:
+                        raise IndexError(index)
+                    for _ in range(-index - 1):
+                        node = node.prev
+                        if node is None:
+                            raise IndexError(index)
+                    return node.value
 
         if isinstance(index, slice):
-            start, stop, step = index.indices(self.pos)
-            return self.ds[start:stop:step]
+            raise NotImplementedError
 
         # should not happen
         raise TypeError(index)
@@ -430,20 +421,18 @@ class DataStreamView:
         return f"DataStreamView: {[self.ds[i] for i in range(self.pos)]}"
 
     def next(self) -> None:
-        if self.persistent:
-            with self._owner.get_db().transaction() as conn:
-                root = conn.root()
-                root[self.id].pos_requested = self.pos + 1
-
         with self.ds.new_data:
-            self.ds.new_data.wait_for(lambda: len(self.ds) > self.pos)
+            if self.pos is None:
+                self.ds.new_data.wait_for(lambda: self.ds.data.head is not None)
 
-            self.pos += 1
-
-            if self.persistent:
-                with self._owner.get_db().transaction() as conn:
-                    root = conn.root()
-                    root[self.id].pos = self.pos
+                self.pos = self.ds.data.head
+            else:
+                self.ds.new_data.wait_for(lambda: self.pos.next is not None)
+                with self.ds.lock.gen_wlock():
+                    self.ds._pos_dsvs = [pos for pos in self.ds._pos_dsvs if pos is not self.pos]  # noqa: SLF001
+                self.pos = self.pos.next
+            with self.ds.lock.gen_wlock():
+                self.ds._pos_dsvs.append(self.pos)  # noqa: SLF001
 
     def tail(self, n: int) -> list[DataItem]:
         if n <= 0:
@@ -584,7 +573,7 @@ class SourceTerm(Term):
             self._set_id("root")
 
         self._output.persistent = persistent
-        self._output.restore_state_from_db()
+        # self._output.restore_state_from_db()
 
         def execute(stop_event: threading.Event):  # noqa: ARG001
             self.enter()
@@ -723,11 +712,11 @@ class FunctionTerm(Term):
             self._set_id("root")
 
         self._output.persistent = persistent
-        self._output.restore_state_from_db()
+        # self._output.restore_state_from_db()
 
         for ds in self._inputs.values():
             ds.persistent = persistent
-            ds.restore_state_from_db()
+            # ds.restore_state_from_db()
 
         # different execute versions
         def execute_f_dataitem(stop_event: threading.Event) -> None:
@@ -964,8 +953,6 @@ class FunctionTerm(Term):
 class DynamicSpawnTerm(Term):
     """
     Spawns new terms for each unique filter_key. Dispatches the inputs and merges the outputs.
-
-    TODO: currently only a single input stream and a single output stream
     """
 
     _filter_key: str

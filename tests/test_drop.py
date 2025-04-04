@@ -16,6 +16,9 @@ def test_datastream_forget_all():
     ds.clean_history()
 
     with pytest.raises(IndexError) as _:
+        ds[0]
+
+    with pytest.raises(IndexError) as _:
         ds[-1]
 
 
