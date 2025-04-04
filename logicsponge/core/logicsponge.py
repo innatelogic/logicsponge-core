@@ -1,4 +1,5 @@
 import inspect
+import itertools
 import logging
 import os
 import pprint
@@ -184,28 +185,69 @@ class DataStreamPersistentState(persistent.Persistent):
     data: persistent.list.PersistentList = field(default_factory=persistent.list.PersistentList)
 
 
+class HistoryBound(ABC):
+    """Calculates a bound on the DataStream history before which DataItems may be dropped."""
+
+    @abstractmethod
+    def bound_index(self, history: list[DataItem]) -> int:
+        """
+        Calculates a bound on the DataStream history before which DataItems may be dropped.
+
+        Args:
+            history (list[DataItem]): history to be considered
+
+        Returns:
+            int: The length of the prefix of the history that can be deleted.
+        """
+
+
+class NoneBound(HistoryBound):
+    """Marks no DataItems for deletion."""
+
+    def bound_index(self, _: list[DataItem]) -> int:
+        return 0
+
+
+class NumberBound(HistoryBound):
+    """Marks all but the n newest DataItems for deletion."""
+
+    n: int
+
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    def bound_index(self, history: list[DataItem]) -> int:
+        if self.n >= len(history):
+            return len(history) - self.n
+        return 0
+
+
 class DataStream:
     id: None | str
-    data: list[DataItem]
+    data: deque[DataItem]
     lock: rwlock.RWLockFair
     new_data: Condition
     new_data_callbacks: list[Callable[[DataItem], None]]
     persistent: bool
     _owner: "Term"
+    history_bound: HistoryBound
 
     def __init__(self, owner: "Term") -> None:
         self.id = None
-        self.data = []
+        self.data = deque()
         self.lock = rwlock.RWLockFair()
         self.new_data = Condition()
         self.new_data_callbacks = []
         self.persistent = False
         self._owner = owner
+        self.history_bound = NoneBound()
 
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
 
     def restore_state_from_db(self) -> None:
+        return  # TODO
+
         if not self.id or not self.persistent:
             return
 
@@ -267,6 +309,8 @@ class DataStream:
         for func in self.new_data_callbacks:
             func(row_dict)
 
+        self.clean_history()
+
     def get_row(self, index: int) -> DataItem:
         """Return a row by its index."""
         with self.lock.gen_rlock():
@@ -275,15 +319,24 @@ class DataStream:
     def get_slice(self, index: slice) -> list[DataItem]:
         """Returns the rows defined by the slice."""
         with self.lock.gen_rlock():
-            return self.data[index]
+            start, stop, step = index.indices(len(self.data))
+            return deque(itertools.islice(self.data, start, stop, step))
 
-    # def from_dataframe(self, df: pd.DataFrame):
-    #     """Load data from a pandas DataFrame into the DataStream."""
-    #     records = df.to_dict(orient='records')
-    #     for record in records:
-    #         # cast keys to string
-    #         record_dataitem = {str(k): record[k] for k in record.keys()}
-    #         self.add_row(record_dataitem)
+    def set_history_bound(self, history_bound: HistoryBound) -> None:
+        """
+        Sets the history bounds of the DataStream.
+
+        Args:
+            history_bound (HistoryBound): Specifies the length of the prefix to be deleted. Gets the prefix until the minimal position of dependent DataStreamViews.
+        """
+        self.history_bound = history_bound
+        self.clean_history()
+
+    def clean_history(self) -> None:
+        """Drops DataItems according to the current history bounds."""
+        with self.lock.gen_wlock():
+            # TODO
+            pass
 
     def from_dict_of_lists(self, dict_of_lists: dict[str, list]):
         """Load data from a dictionary of lists into the DataStream."""
