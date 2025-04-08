@@ -23,7 +23,7 @@ def test_datastreamview_one_element():
     dsv = ls.DataStreamView(ds=ds, owner=term)
 
     di0 = ls.DataItem({"hello": "world"})
-    ds.add_row(di0)
+    ds.append(di0)
     dsv.next()
 
     assert di0 == dsv[0]
@@ -43,8 +43,8 @@ def test_datastreamview_two_elements():
 
     di0 = ls.DataItem({"hello": "world"})
     di1 = ls.DataItem({"hello": "earth"})
-    ds.add_row(di0)
-    ds.add_row(di1)
+    ds.append(di0)
+    ds.append(di1)
     dsv.next()
     dsv.next()
 

@@ -1,5 +1,4 @@
 import inspect
-import itertools
 import logging
 import os
 import pprint
@@ -9,20 +8,16 @@ import time
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Hashable, Iterator
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from functools import reduce
-from threading import Condition
-from typing import Any, Self, TypedDict, TypeVar, overload
+from typing import Any, Self, TypedDict, TypeVar
 
-import persistent.list
 import ZODB
 import ZODB.FileStorage
 from frozendict import frozendict
-from readerwriterlock import rwlock
 
-from logicsponge.core.datastructures import Deque, DequeNode
+from logicsponge.core.datastructures import SharedQueue, SharedQueueView
 
 # logging
 logger = logging.getLogger(__name__)
@@ -182,11 +177,6 @@ class ViewStatistics(TypedDict):
     write: int
 
 
-@dataclass
-class DataStreamPersistentState(persistent.Persistent):
-    data: persistent.list.PersistentList = field(default_factory=persistent.list.PersistentList)
-
-
 class HistoryBound(ABC):
     """Calculates a bound on the DataStream history before which DataItems may be dropped."""
 
@@ -225,90 +215,34 @@ class NumberBound(HistoryBound):
 
 
 class DataStream:
-    id: None | str
-    data: Deque[DataItem]
-    lock: rwlock.RWLockFair
-    new_data: Condition
-    new_data_callbacks: list[Callable[[DataItem], None]]
-    persistent: bool
-    _owner: "Term"
+    id: str | None
+    owner: "Term"
+    data: SharedQueue[DataItem]
     history_bound: HistoryBound
-    _pos_dsvs: list[DequeNode]
 
     def __init__(self, owner: "Term") -> None:
         self.id = None
-        self.data = Deque()
-        self.lock = rwlock.RWLockFair()
-        self.new_data = Condition()
-        self.new_data_callbacks = []
-        self.persistent = False
-        self._owner = owner
+        self.owner = owner
+        self.data = SharedQueue()
         self.history_bound = NoneBound()
-        self._pos_dsvs = []
 
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
 
-    def restore_state_from_db(self) -> None:
-        raise NotImplementedError
-
     def __len__(self) -> int:
-        """Return the number of rows in the DataStream."""
-        with self.lock.gen_rlock():
-            return len(self.data)
-
-    @overload
-    def __getitem__(self, index: int) -> DataItem:
-        pass
-
-    @overload
-    def __getitem__(self, index: slice) -> list[DataItem]:
-        pass
+        return len(self.data)
 
     def __getitem__(self, index: int | slice) -> DataItem | list[DataItem]:
         """Enable bracket notation for accessing rows."""
-        if isinstance(index, int):
-            return self.get_row(index)
-
-        if isinstance(index, slice):
-            return self.get_slice(index)
-
-        # should not happen
-        raise TypeError(index)
+        return self.data[index]
 
     def __str__(self) -> str:
-        return str(self.to_list())
+        raise NotImplementedError
 
-    def add_row(self, row_dict: DataItem):
-        """Add a row to the end of the DataStream."""
-        with self.lock.gen_wlock():
-            if self.persistent:
-                with self._owner.get_db().transaction() as conn:
-                    root = conn.root()
-                    root[self.id].data.append(row_dict)
-
-            self.data.append(row_dict)
-
-        # notify all that there is new data
-        with self.new_data:
-            self.new_data.notify_all()
-
-        # apply all callback functions
-        for func in self.new_data_callbacks:
-            func(row_dict)
-
+    def append(self, di: DataItem) -> None:
+        """Add a data item to the end of the DataStream."""
+        self.data.append(di)
         self.clean_history()
-
-    def get_row(self, index: int) -> DataItem:
-        """Return a row by its index."""
-        with self.lock.gen_rlock():
-            return self.data[index]
-
-    def get_slice(self, index: slice) -> list[DataItem]:
-        """Returns the rows defined by the slice."""
-        with self.lock.gen_rlock():
-            start, stop, step = index.indices(len(self.data))
-            return Deque(itertools.islice(self.data, start, stop, step))
 
     def set_history_bound(self, history_bound: HistoryBound) -> None:
         """
@@ -322,125 +256,62 @@ class DataStream:
 
     def clean_history(self) -> None:
         """Drops DataItems according to the current history bounds."""
-        with self.lock.gen_rlock():
-            prefix = self.data.slice_until_nodes(self._pos_dsvs, inclusive=True)
-            index = self.history_bound.bound_index(prefix)
-
-        with self.lock.gen_wlock():
-            for _ in range(index):
-                self.data.popleft()
+        # TODO: implement
 
     def from_dict_of_lists(self, dict_of_lists: dict[str, list]):
+        raise NotImplementedError
         """Load data from a dictionary of lists into the DataStream."""
         if not dict_of_lists:
             return
         num_rows = len(next(iter(dict_of_lists.values())))
         for i in range(num_rows):
             row_dict = DataItem({column: dict_of_lists[column][i] for column in dict_of_lists})
-            self.add_row(row_dict)
+            self.append(row_dict)
 
     def to_list(self) -> list[DataItem]:
         """Return the entire DataStream as a list of dictionaries, including row numbers."""
+        raise NotImplementedError
         # Include row numbers starting from 0
-        with self.lock.gen_rlock():
-            return [DataItem({**row}) for _, row in enumerate(self.data)]
-
-
-@dataclass
-class DataStreamViewPersistentState(persistent.Persistent):
-    pos: int = 0
-    pos_requested: int = 0
+        return [DataItem({**row}) for _, row in enumerate(self.data)]
 
 
 class DataStreamView:
     id: str | None
+    owner: "Term"
     ds: DataStream
-    pos: DequeNode[DataItem] | None
-    persistent: bool
-    _owner: "Term"
+    view: SharedQueueView
 
     def __init__(self, ds: DataStream, owner: "Term") -> None:
         self.id = None
+        self.owner = owner
         self.ds = ds
-        self.pos = None
-        self.persistent = False
-        self._owner = owner
+        self.view = ds.data.create_view()
 
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
-
-    def restore_state_from_db(self) -> None:
-        raise NotImplementedError
 
     def __len__(self) -> int:
         """Return the number of rows in the DataStreamView."""
         raise NotImplementedError
 
-    @overload
-    def __getitem__(self, index: int) -> DataItem:
-        pass
-
-    @overload
-    def __getitem__(self, index: slice) -> list[DataItem]:
-        pass
-
     def __getitem__(self, index: int | slice) -> DataItem | list[DataItem]:
-        """Enable bracket notation for accessing rows."""
-        if isinstance(index, int):
-            if self.pos is None:
-                raise IndexError(index)
-
-            if index >= 0:
-                with self.ds.lock.gen_rlock():
-                    node = self.ds.data.head
-                    for _ in range(index):
-                        if node is None or node is self.pos:
-                            raise IndexError(index)
-                        node = node.next
-                    if node is None:
-                        raise IndexError(index)
-                    return node.value
-            else:
-                with self.ds.lock.gen_rlock():
-                    node = self.pos
-                    if node is None:
-                        raise IndexError(index)
-                    for _ in range(-index - 1):
-                        node = node.prev
-                        if node is None:
-                            raise IndexError(index)
-                    return node.value
-
-        if isinstance(index, slice):
-            raise NotImplementedError
-
-        # should not happen
-        raise TypeError(index)
+        return self.view[index]
 
     def __str__(self) -> str:
-        return f"DataStreamView: {[self.ds[i] for i in range(self.pos)]}"
+        raise NotImplementedError
 
     def next(self) -> None:
-        with self.ds.new_data:
-            if self.pos is None:
-                self.ds.new_data.wait_for(lambda: self.ds.data.head is not None)
-
-                self.pos = self.ds.data.head
-            else:
-                self.ds.new_data.wait_for(lambda: self.pos.next is not None)
-                with self.ds.lock.gen_wlock():
-                    self.ds._pos_dsvs = [pos for pos in self.ds._pos_dsvs if pos is not self.pos]  # noqa: SLF001
-                self.pos = self.pos.next
-            with self.ds.lock.gen_wlock():
-                self.ds._pos_dsvs.append(self.pos)  # noqa: SLF001
+        self.view.next()
 
     def tail(self, n: int) -> list[DataItem]:
+        raise NotImplementedError
         if n <= 0:
             raise IndexError(n)
         return self[-n:]
 
     @property
     def stats(self) -> ViewStatistics:
+        raise NotImplementedError
         return {
             "read": self.pos,
             "write": len(self.ds),
@@ -449,6 +320,7 @@ class DataStreamView:
     def key_to_list(self, key: str, *, include_missing: bool = False) -> list[Any]:
         """Return the list of values associated with key in each DataItem
         (include_missing indicates whether None is included if the key/value doesn't exist)."""
+        raise NotImplementedError
 
         with self.ds.lock.gen_rlock():
             if include_missing:
@@ -599,7 +471,7 @@ class SourceTerm(Term):
 
     def output(self, data: DataItem) -> None:
         data.to_now()
-        self._output.add_row(data)
+        self._output.append(data)
 
     def eos(self) -> None:
         """Signal an EOS (end of stream) for this source."""
@@ -932,7 +804,7 @@ class FunctionTerm(Term):
     def output(self, data: DataItem | None) -> None:
         """appends data to the output stream if data is not None"""
         if data is not None:
-            self._output.add_row(data)
+            self._output.append(data)
 
     @property
     def stats(self) -> dict:
@@ -1022,7 +894,7 @@ class DynamicSpawnTerm(Term):
 
             if di.is_set(Control.EOS):
                 for d in self._spawned_streams.values():
-                    d.add_row(di)
+                    d.append(di)
                 break
 
             iden = di[self._filter_key]
@@ -1039,19 +911,19 @@ class DynamicSpawnTerm(Term):
                 self._spawned_streams[iden] = new_ds
                 self._spawned_terms[iden] = new_term
 
-            self._spawned_streams[iden].add_row(di)
+            self._spawned_streams[iden].append(di)
             ds.next()
 
         # wait for all spawned terms to terminate
         for term in self._spawned_terms.values():
             term.join()
 
-        self._output.add_row(DataItem().control(Control.EOS))
+        self._output.append(DataItem().control(Control.EOS))
 
     def eos(self) -> None:
         """Signal an EOS (end of stream) for the term."""
         eos_di = DataItem().control(Control.EOS)
-        self._output.add_row(eos_di)
+        self._output.append(eos_di)
         self.stop()
 
     def enter(self):
@@ -1213,7 +1085,7 @@ class Linearizer(FunctionTerm):
 
         dict_row = DataItem({"name": name, "data": dataitem}) if self.info else dataitem
 
-        self.linearized_input.ds.add_row(dict_row)
+        self.linearized_input.ds.append(dict_row)
 
     def _add_input(self, name: str, ds: DataStream):
         def new_data_callback(dataitem):
