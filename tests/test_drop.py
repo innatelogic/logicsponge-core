@@ -9,11 +9,13 @@ def test_datastream_forget_all():
     ds = ls.DataStream(owner=ls.Id())
 
     di = ls.DataItem({"hello": "world"})
-    ds.add_row(di)
+    ds.append(di)
     assert di == ds[-1]
 
     ds.set_history_bound(ls.NumberBound(0))
     ds.clean_history()
+
+    assert len(ds) == 0
 
     with pytest.raises(IndexError) as _:
         ds[0]
@@ -28,7 +30,7 @@ def test_datastreamview_forget_all():
     dsv = ls.DataStreamView(ds=ds, owner=term)
 
     di = ls.DataItem({"hello": "world"})
-    ds.add_row(di)
+    ds.append(di)
     dsv.next()
     assert di == dsv[-1]
 
@@ -45,7 +47,7 @@ def test_datastream_keep_newest():
 
     dis = [ls.DataItem({"hello": "world", "cnt": i}) for i in range(10)]
     for di in dis:
-        ds.add_row(di)
+        ds.append(di)
         assert di == ds[-1]
         with pytest.raises(IndexError) as _:
             ds[-2]
@@ -59,7 +61,7 @@ def test_datastreamview_keep_newest():
 
     dis = [ls.DataItem({"hello": "world", "cnt": i}) for i in range(10)]
     for di in dis:
-        ds.add_row(di)
+        ds.append(di)
 
     dsv.next()
     assert dis[0] == dsv[-1]

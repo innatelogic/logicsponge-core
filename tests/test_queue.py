@@ -58,3 +58,33 @@ def test_view_next():
 
     with pytest.raises(IndexError) as _:
         view[-2]
+
+
+def test_drop_one():
+    queue: SharedQueue[int] = SharedQueue()
+    queue.append(42)
+    queue.append(43)
+
+    queue.drop_front(cnt=1)
+
+    assert queue.to_list() == [43]
+
+
+def test_drop_all():
+    queue: SharedQueue[int] = SharedQueue()
+    queue.append(42)
+    queue.append(43)
+
+    queue.drop_front(cnt=2)
+
+    assert queue.to_list() == []
+
+
+def test_drop_none():
+    queue: SharedQueue[int] = SharedQueue()
+    queue.append(42)
+    queue.append(43)
+
+    queue.drop_front(cnt=0)
+
+    assert queue.to_list() == [42, 43]

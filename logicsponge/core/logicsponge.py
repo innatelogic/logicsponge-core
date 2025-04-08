@@ -81,9 +81,9 @@ class LatencyQueue:
 class DataItem:
     _time: float
     _control: set[Control]
-    _data: frozendict
+    _data: frozendict[str, Any]
 
-    def __init__(self, data: dict | Self | None = None, *args, **kwargs):
+    def __init__(self, data: dict[str, Any] | Self | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # by default not a control data item
         self._control = set()
@@ -134,15 +134,15 @@ class DataItem:
     def __repr__(self) -> str:
         return f"DataItem({dict(self._data)})"
 
-    def __getitem__(self, key: Any) -> Any:
+    def __getitem__(self, key: str) -> Any:
         return self._data[key]
 
-    def __delitem__(self, key: Any) -> None:
+    def __delitem__(self, key: str) -> None:
         new_data = dict(self._data)
         del new_data[key]
         self._data = frozendict(new_data)
 
-    def __contains__(self, key: Any) -> bool:
+    def __contains__(self, key: str) -> bool:
         return key in self._data
 
     def __iter__(self) -> Iterator:
@@ -154,21 +154,21 @@ class DataItem:
     def __eq__(self, other: object) -> bool:
         if isinstance(other, DataItem):
             return self._data == other._data
-        return False
+        return NotImplemented
 
     def __hash__(self) -> int:
         return hash(frozenset(self._data.items()))
 
-    def items(self) -> Iterator[tuple[Any, Any]]:
+    def items(self) -> Iterator[tuple[str, Any]]:
         return iter(self._data.items())
 
-    def keys(self) -> Iterator[Any]:
+    def keys(self) -> Iterator[str]:
         return iter(self._data.keys())
 
     def values(self) -> Iterator[Any]:
         return iter(self._data.values())
 
-    def get(self, key: Any, default: Any = None) -> Any:
+    def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, default)
 
 
@@ -181,12 +181,12 @@ class HistoryBound(ABC):
     """Calculates a bound on the DataStream history before which DataItems may be dropped."""
 
     @abstractmethod
-    def bound_index(self, history: list[DataItem]) -> int:
+    def items_to_drop(self, ds: "DataStream") -> int:
         """
         Calculates a bound on the DataStream history before which DataItems may be dropped.
 
         Args:
-            history (list[DataItem]): history to be considered
+            ds (DataStream): stream to be considered
 
         Returns:
             int: The length of the prefix of the history that can be deleted.
@@ -196,7 +196,7 @@ class HistoryBound(ABC):
 class NoneBound(HistoryBound):
     """Marks no DataItems for deletion."""
 
-    def bound_index(self, history: list[DataItem]) -> int:
+    def items_to_drop(self, ds: "DataStream") -> int:
         return 0
 
 
@@ -208,9 +208,10 @@ class NumberBound(HistoryBound):
     def __init__(self, n: int) -> None:
         self.n = n
 
-    def bound_index(self, history: list[DataItem]) -> int:
-        if self.n >= len(history):
-            return len(history) - self.n
+    def items_to_drop(self, ds: "DataStream") -> int:
+        length = ds.data.len_until_first_cursor()
+        if self.n <= length:
+            return length - self.n
         return 0
 
 
@@ -219,12 +220,14 @@ class DataStream:
     owner: "Term"
     data: SharedQueue[DataItem]
     history_bound: HistoryBound
+    lock: threading.Lock
 
     def __init__(self, owner: "Term") -> None:
         self.id = None
         self.owner = owner
         self.data = SharedQueue()
         self.history_bound = NoneBound()
+        self.lock = threading.Lock()
 
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
@@ -237,7 +240,7 @@ class DataStream:
         return self.data[index]
 
     def __str__(self) -> str:
-        raise NotImplementedError
+        return f"DataStream(id={self.id}): {self.data.to_list()}"
 
     def append(self, di: DataItem) -> None:
         """Add a data item to the end of the DataStream."""
@@ -256,7 +259,9 @@ class DataStream:
 
     def clean_history(self) -> None:
         """Drops DataItems according to the current history bounds."""
-        # TODO: implement
+        with self.lock:
+            cnt = self.history_bound.items_to_drop(self)
+            self.data.drop_front(cnt=cnt)
 
     def from_dict_of_lists(self, dict_of_lists: dict[str, list]):
         raise NotImplementedError
@@ -270,9 +275,7 @@ class DataStream:
 
     def to_list(self) -> list[DataItem]:
         """Return the entire DataStream as a list of dictionaries, including row numbers."""
-        raise NotImplementedError
-        # Include row numbers starting from 0
-        return [DataItem({**row}) for _, row in enumerate(self.data)]
+        return self.data.to_list()
 
 
 class DataStreamView:
@@ -444,9 +447,6 @@ class SourceTerm(Term):
         if not self.id:
             self._set_id("root")
 
-        self._output.persistent = persistent
-        # self._output.restore_state_from_db()
-
         def execute(stop_event: threading.Event):  # noqa: ARG001
             self.enter()
             try:
@@ -481,10 +481,10 @@ class SourceTerm(Term):
 
     @property
     def stats(self) -> dict:
-        last_times = [di.time for di in self._output]
+        last_times = [di.time for di in self._output.to_list()]
         latency_avg = (last_times[-1] - last_times[0]) / len(last_times) if len(last_times) > 1 else float("nan")
         latency_max = (
-            max([last_times[i] - last_times[i - 1] for i in range(1, len(last_times))])
+            max(last_times[i] - last_times[i - 1] for i in range(1, len(last_times)))
             if len(last_times) > 1
             else float("nan")
         )
@@ -583,13 +583,6 @@ class FunctionTerm(Term):
         if not self.id:
             self._set_id("root")
 
-        self._output.persistent = persistent
-        # self._output.restore_state_from_db()
-
-        for ds in self._inputs.values():
-            ds.persistent = persistent
-            # ds.restore_state_from_db()
-
         # different execute versions
         def execute_f_dataitem(stop_event: threading.Event) -> None:
             # take the 1st stream if there are multiple input streams
@@ -629,7 +622,7 @@ class FunctionTerm(Term):
                         input_stream.next()
                     self._latency_queue.tic()
 
-                    input_values = tuple([input_stream[-1] for input_stream in inputs])
+                    input_values = tuple(input_stream[-1] for input_stream in inputs)
 
                     if any(di.is_set(Control.EOS) for di in input_values):
                         # we stop if any input stream signals EOS

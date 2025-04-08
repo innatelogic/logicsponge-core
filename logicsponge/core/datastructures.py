@@ -26,7 +26,7 @@ class SharedQueue(Generic[T]):
     new_data: Condition
 
     next_cid: int
-    positions: dict[int, SharedQueueNode[T] | None]
+    cursors: dict[int, SharedQueueNode[T] | None]
 
     def __init__(self) -> None:
         self.head = None
@@ -36,13 +36,22 @@ class SharedQueue(Generic[T]):
         self.new_data = Condition()
 
         self.next_cid = 0
-        self.positions = {}
+        self.cursors = {}
 
     def __len__(self) -> int:
         with self.global_lock.gen_rlock():
             count = 0
             node = self.head
             while node:
+                count += 1
+                node = node.next
+            return count
+
+    def len_until_first_cursor(self) -> int:
+        with self.global_lock.gen_rlock():
+            count = 0
+            node = self.head
+            while node and not any(node.prev is cursor for cursor in self.cursors.values()):
                 count += 1
                 node = node.next
             return count
@@ -77,16 +86,25 @@ class SharedQueue(Generic[T]):
 
         raise TypeError
 
+    def to_list(self) -> list[T]:
+        lst = []
+        with self.global_lock.gen_rlock():
+            node = self.head
+            while node:
+                lst.append(node.value)
+                node = node.next
+        return lst
+
     def register_consumer(self) -> int:
         with self.global_lock.gen_wlock():
             cid = self.next_cid
             self.next_cid += 1
-            self.positions[cid] = None
+            self.cursors[cid] = None
             return cid
 
     def unregister_consumer(self, cid: int) -> None:
         with self.global_lock.gen_wlock():
-            self.positions.pop(cid, None)
+            self.cursors.pop(cid, None)
 
     def create_view(self) -> "SharedQueueView[T]":
         return SharedQueueView(queue=self, cid=self.register_consumer())
@@ -103,23 +121,53 @@ class SharedQueue(Generic[T]):
         with self.new_data:
             self.new_data.notify_all()
 
+    def drop_front(self, cnt: int = 1) -> None:
+        with self.global_lock.gen_rlock():
+            if cnt <= 0 or self.head is None:
+                return
+
+        with self.global_lock.gen_wlock():
+            node = self.head
+            while node and cnt > 0:
+                for cid, pos in self.cursors.items():
+                    if node is pos:
+                        self.cursors[cid] = None  # invalidate position
+                cnt -= 1
+                node = node.next
+            if node is None:  # iterated beyond the tail
+                self.head = None
+                self.tail = None
+            else:
+                self.head = node
+                node.prev = None
+
     def next(self, cid: int) -> None:
         with self.new_data:
             with self.global_lock.gen_rlock():
-                cursor = self.positions[cid]
+                cursor = self.cursors[cid]
 
             if cursor is None:
-                self.new_data.wait_for(lambda: self.head is not None)  # TODO: rlock needed?
+
+                def head_not_none() -> bool:
+                    with self.global_lock.gen_rlock():
+                        return self.head is not None
+
+                self.new_data.wait_for(head_not_none)
                 with self.global_lock.gen_wlock():
-                    self.positions[cid] = self.head
+                    self.cursors[cid] = self.head
             else:
-                self.new_data.wait_for(lambda: cursor.next is not None)  # TODO: rlock needed?
+
+                def next_not_none() -> bool:
+                    with self.global_lock.gen_rlock():
+                        return cursor.next is not None
+
+                self.new_data.wait_for(next_not_none)
                 with self.global_lock.gen_wlock():
-                    self.positions[cid] = cursor.next
+                    self.cursors[cid] = cursor.next
 
     def get_relative(self, cid: int, index: int) -> T:
         with self.global_lock.gen_rlock():
-            cursor = self.positions[cid]
+            cursor = self.cursors[cid]
 
             if cursor is None:
                 raise IndexError

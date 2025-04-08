@@ -40,6 +40,16 @@ def test_sequential():
     assert type(u) is ls.SequentialTerm
 
 
+def test_sequential_source():
+    s = ls.SourceTerm("s")
+    x = ls.FunctionTerm("x")
+    y = ls.FunctionTerm("y")
+    z = ls.FunctionTerm("z")
+    u = s * x * y * z
+    assert str(u) == "(Term(s); Term(x); Term(y); Term(z))"
+    assert type(u) is ls.SequentialTerm
+
+
 def test_both():
     x = ls.FunctionTerm("x")
     y = ls.FunctionTerm("y")
