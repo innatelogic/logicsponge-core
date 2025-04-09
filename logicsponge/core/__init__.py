@@ -1,4 +1,4 @@
-"""logicsponge: A real-time data processing pipeline"""
+"""logicsponge: A real-time data processing pipeline."""
 
 from logicsponge.core.logicsponge import (
     AddIndex,
@@ -11,12 +11,14 @@ from logicsponge.core.logicsponge import (
     Dump,
     DynamicSpawnTerm,
     EosFilter,
+    Flatten,
     FunctionTerm,
     HistoryBound,
     Id,
     KeyFilter,
     KeyValueFilter,
     Linearizer,
+    MergeToSingleStream,
     NumberBound,
     ParallelTerm,
     PPrint,
@@ -28,7 +30,6 @@ from logicsponge.core.logicsponge import (
     State,
     Stop,
     Term,
-    ToSingleStream,
     parallel,
 )
 
@@ -43,15 +44,17 @@ __all__ = [
     "Dump",
     "DynamicSpawnTerm",
     "EosFilter",
+    "Flatten",
     "FunctionTerm",
     "HistoryBound",
     "Id",
     "KeyFilter",
     "KeyValueFilter",
     "Linearizer",
+    "MergeToSingleStream",
     "NumberBound",
-    "ParallelTerm",
     "PPrint",
+    "ParallelTerm",
     "Print",
     "PrintKeys",
     "Rename",
@@ -60,6 +63,5 @@ __all__ = [
     "State",
     "Stop",
     "Term",
-    "ToSingleStream",
     "parallel",
 ]

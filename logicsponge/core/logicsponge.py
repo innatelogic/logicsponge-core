@@ -1288,10 +1288,10 @@ class DynamicSpawnTerm(Term):
         self.stop()
 
     def enter(self):
-        """Overwrite this function to initialize the term's thread"""
+        """Overwrite this function to initialize the term's thread."""
 
     def exit(self):
-        """Overwrite this function to clean up the term's thread"""
+        """Overwrite this function to clean up the term's thread."""
 
     def stop(self):
         self._stop_event.set()
@@ -1411,25 +1411,41 @@ class Stop(Term):
         return
 
 
-class ToSingleStream(FunctionTerm):
-    def __init__(self, *args, flatten: bool = False, merge: bool = False, **kwargs) -> None:
+class Flatten(FunctionTerm):
+    """Flattens the first data steam. The level of flattening can be specified."""
+
+    level: int | None
+
+    def __init__(self, *args, level: int | None = 1, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.flatten = flatten
-        self.merge = merge
+        self.level = level
 
     def f(self, items: dict[str, DataItem]) -> DataItem:
-        ret = next(iter(items.values())) if len(items) == 1 else items
+        if len(items) > 1:
+            msg = "Cannot flatten more than one stream at once. Please merge first."
+            raise ValueError(msg)
 
-        # merge all into a single dict
-        if self.merge:
-            after_merge = {}
-            for v in ret.values():
-                after_merge.update(v)
+        di = next(iter(items.values()))
+        return DataItem(flatten_dict(di))
+
+
+class MergeToSingleStream(FunctionTerm):
+    def __init__(self, *args, combine: bool = False, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.combine = combine
+
+    def f(self, items: dict[str, DataItem]) -> DataItem:
+        ret: dict | dict[str, DataItem]
+        if self.combine:
+            # combine all into a single dict
+            ret = {}
+            for v in items.values():
+                ret.update(v)
         else:
-            after_merge = ret
+            # do not combine
+            ret = items
 
-        # return with data view names as keys
-        return DataItem(flatten_dict(after_merge)) if self.flatten else DataItem(after_merge)
+        return DataItem(ret)
 
 
 class Linearizer(FunctionTerm):
@@ -1745,11 +1761,11 @@ def parallel(li: list[Term]) -> Term:
     return reduce(red_parallel, li)
 
 
-def flatten_dict(d: dict[str, Any], parent_key: str | None = None, sep: str = ".") -> dict[str, Any]:
+def flatten_dict(d: dict[str, Any] | DataItem, parent_key: str | None = None, sep: str = ".") -> dict[str, Any]:
     items: list[tuple[str, Any]] = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key is not None else k
-        if isinstance(v, dict):
+        if isinstance(v, (DataItem, dict)):
             # recurse on sub-dict
             items.extend(flatten_dict(d=v, parent_key=new_key, sep=sep).items())
         else:
