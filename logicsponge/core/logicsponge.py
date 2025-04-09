@@ -1482,12 +1482,15 @@ class KeyValueFilter(FunctionTerm):
     key_value_filter: Callable[[str, Any], bool] | None
 
     def __init__(self, *args, key_value_filter: Callable[[str, Any], bool] | None = None, **kwargs) -> None:
-        """key_value_filter: Callable[[str, Any], bool], optional
+        """Create a new KeyValueFilter.
+
+        key_value_filter: Callable[[str, Any], bool], optional
         Filter to be applied to each key-value pair in data item.
         """
         if key_value_filter is None and len(args) > 0 and has_callable_signature(args[0], (str, Any), bool):
-            key_value_filter = args[0]
-            args = args[1:]
+            key_value_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
+            name = str(args[0])
+            args = (name,) + args[1:]
 
         super().__init__(*args, **kwargs)
         self.key_value_filter = key_value_filter
@@ -1497,7 +1500,7 @@ class KeyValueFilter(FunctionTerm):
             filtered_attributes = {k: v for k, v in item.items() if self.key_value_filter(k, v)}
         else:
             filtered_attributes = item
-        return DataItem(**filtered_attributes)
+        return DataItem(filtered_attributes)
 
 
 class DataItemFilter(FunctionTerm):
@@ -1506,12 +1509,15 @@ class DataItemFilter(FunctionTerm):
     data_item_filter: Callable[[DataItem], bool] | None
 
     def __init__(self, *args, data_item_filter: Callable[[DataItem], bool] | None = None, **kwargs) -> None:
-        """key_value_filter: Callable[[DataItem], bool]
+        """Create a new DataItemFilter.
+
+        key_value_filter: Callable[[DataItem], bool]
         Filter to be applied to each key-value pair in data item.
         """
         if data_item_filter is None and len(args) > 0 and has_callable_signature(args[0], (Any,), bool):
-            data_item_filter = args[0]
-            args = args[1:]
+            data_item_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
+            name = str(args[0])
+            args = (name,) + args[1:]
 
         super().__init__(*args, **kwargs)
         self.data_item_filter = data_item_filter
@@ -1531,7 +1537,9 @@ class KeyFilter(KeyValueFilter):
     def __init__(
         self, *args, keys: None | str | list[str] = None, not_keys: None | str | list[str] = None, **kwargs
     ) -> None:
-        """keys: None, str, or list of str, optional
+        """Create a new KeyFilter.
+
+        keys: None, str, or list of str, optional
             Keys to include in the calculation.
         not_keys: None, str, or list of str, optional
             Keys to exclude from the calculation. Requires keyword argument.
@@ -1541,8 +1549,12 @@ class KeyFilter(KeyValueFilter):
             raise ValueError(msg)
 
         if len(args) > 0 and keys is None and not_keys is None:
+            if not isinstance(args[0], (str, list)):
+                msg = "Interpreting first argument as keys. Expected str or list[str]."
+                raise TypeError(msg)
             keys = args[0]
-            args = args[1:]
+            name = str(args[0])
+            args = (name,) + args[1:]
 
         self.keys = keys
         self.not_keys = not_keys
