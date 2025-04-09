@@ -1145,15 +1145,20 @@ class ToSingleStream(FunctionTerm):
         self.merge = merge
 
     def f(self, items: dict[str, DataItem]) -> DataItem:
-        ret = next(iter(items.values())) if len(items) == 1 else items
+        if len(items) == 1:
+            # is already a single stream
+            return next(iter(items.values()))
 
-        # merge all into a single dict
+        # > 1 input streams
+        after_merge: dict | dict[str, DataItem]
         if self.merge:
+            # merge all into a single dict
             after_merge = {}
-            for v in ret.values():
+            for v in items.values():
                 after_merge.update(v)
         else:
-            after_merge = ret
+            # do not merge
+            after_merge = items
 
         # return with data view names as keys
         return DataItem(flatten_dict(after_merge)) if self.flatten else DataItem(after_merge)
