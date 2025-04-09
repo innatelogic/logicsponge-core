@@ -162,3 +162,7 @@ cython_debug/
 #.idea/
 
 .DS_Store
+
+# tox integration test files
+main.zip
+logicsponge-examples-main/
