@@ -11,7 +11,7 @@ from collections.abc import Callable, Hashable, Iterator
 from datetime import UTC, datetime
 from enum import Enum
 from functools import reduce
-from typing import Any, Self, TypedDict, TypeVar
+from typing import Any, Self, TypedDict, TypeVar, overload
 
 from frozendict import frozendict
 from readerwriterlock import rwlock
@@ -273,7 +273,7 @@ class DataItem:
             key: The key to be checked.
 
         Returns:
-            True if the DataItem contins a data value for the given key.
+            True if the DataItem contains a data value for the given key.
 
         """
         return key in self._data
@@ -511,6 +511,12 @@ class DataStream:
         # SAFETY: From safety of SharedQueue.__len__.
         return len(self._data)
 
+    @overload
+    def __getitem__(self, index: int) -> DataItem: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[DataItem]: ...
+
     def __getitem__(self, index: int | slice) -> DataItem | list[DataItem]:
         """Get DataItem(s) with a given index or slice.
 
@@ -703,6 +709,12 @@ class DataStreamView:
         """
         # SAFETY: From safety of SharedQueueView.__len__.
         return len(self._view)
+
+    @overload
+    def __getitem__(self, index: int) -> DataItem: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[DataItem]: ...
 
     def __getitem__(self, index: int | slice) -> DataItem | list[DataItem]:
         """Get DataItem(s) with a given index or slice.
@@ -976,13 +988,18 @@ class ConstantSourceTerm(SourceTerm):
         self._items = items
 
     def run(self) -> None:
-        """Execute run."""
+        """Output all items in the list and then terminate."""
         for item in self._items:
             self.output(item)
 
 
 class FunctionTerm(Term):
-    """A Term that receives data, performs a function on it, and outputs the resulting data."""
+    """A Term that receives data, performs a function on it, and outputs the resulting data.
+
+    Attributes:
+        state (State): The Term's state. Any state should go in here.
+
+    """
 
     _inputs: dict[str, DataStreamView]  # name -> input stream view
     _output: DataStream
@@ -1023,11 +1040,11 @@ class FunctionTerm(Term):
         self.stop()
 
     def f(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
-        """Execute f."""
+        """Execute f on reception of a new DataItem."""
         raise NotImplementedError
 
     def run(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-        """Execute run."""
+        """Execute run and terminate afterwards."""
         raise NotImplementedError
 
     def stop(self) -> None:
