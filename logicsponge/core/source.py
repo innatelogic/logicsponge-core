@@ -1,8 +1,10 @@
+"""Sources for logicsponge."""
+
 import csv
 import logging
-import os
 import tempfile
 import time
+from pathlib import Path
 
 import chardet
 import gdown
@@ -23,33 +25,41 @@ logging.basicConfig(
 
 
 class FileWatchHandler(watchdog.events.FileSystemEventHandler):
-    file_path: str
+    """Watches a file for changes."""
+
+    file_path: Path
     encoding: str
     source: "FileWatchSource"
 
     def __init__(self, file_path: str, source: "FileWatchSource", encoding: str = "utf-8") -> None:
+        """Create a FileWatchHandler object."""
         super().__init__()
-        self.file_path = os.path.abspath(file_path)
+        self.file_path = Path(file_path).resolve()
         self.source = source
         self.encoding = encoding
 
     def read_file(self) -> None:
+        """Read the file."""
         # file was changed
-        with open(self.file_path, encoding=self.encoding) as file:
+        with Path.open(self.file_path, encoding=self.encoding) as file:
             data = file.read()
-            timestamp = os.path.getmtime(self.file_path)
+            timestamp = Path(self.file_path).stat().st_mtime
             self.source.output(ls.DataItem({"Time": timestamp, "string": data}))
 
     def on_modified(self, event: watchdog.events.FileSystemEvent) -> None:
+        """Call if file was modified."""
         if event.src_path == self.file_path:
             self.read_file()
 
 
 class FileWatchSource(ls.SourceTerm):
+    """Source that watches a file for changes."""
+
     observer: BaseObserver
     handler: FileWatchHandler
 
-    def __init__(self, file_path: str, *args, encoding: str = "utf-8", **kwargs) -> None:
+    def __init__(self, file_path: str, *args, encoding: str = "utf-8", **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a FileWatchSource object."""
         super().__init__(*args, **kwargs)
 
         # setup the file watcher
@@ -57,38 +67,45 @@ class FileWatchSource(ls.SourceTerm):
 
         # observe the directory of the file
         self.observer = watchdog.observers.Observer()
-        path = os.path.dirname(file_path)
+        path = str(Path(file_path).parent)
         self.observer.schedule(self.handler, path=path, recursive=False)
 
     def enter(self) -> None:
+        """Enter the source."""
         self.handler.read_file()
         self.observer.start()
 
     def exit(self) -> None:
+        """Exit the source."""
         self.observer.stop()
         self.observer.join()
 
     def run(self) -> None:
+        """Execute the source's run."""
         while True:
             time.sleep(60)  # TODO: better way?
 
 
 class CSVStreamer(ls.SourceTerm):
+    """Stream a csv file."""
+
     file_path: str
     poll_delay: float
     position: int
 
-    def __init__(self, *args, file_path: str, poll_delay: float = 1, **kwargs) -> None:
+    def __init__(self, *args, file_path: str, poll_delay: float = 1, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a CSVStreamer object."""
         super().__init__(*args, **kwargs)
         self.file_path = file_path
         self.poll_delay = poll_delay
         self.position = 0
 
     def run(self) -> None:
+        """Execute the run."""
         # TODO: unclear about updates within line. Not explicitely managed.
         while True:
             try:
-                with open(self.file_path) as csvfile:
+                with Path(self.file_path).open() as csvfile:
                     # Move the pointer to the last read position
                     csvfile.seek(self.position)
 
@@ -108,21 +125,26 @@ class CSVStreamer(ls.SourceTerm):
 
 
 class GoogleDriveSource(ls.SourceTerm):
+    """Stream a Google drive url."""
+
     poll_interval_sec: int
     google_drive_link: str | None
-    local_filename: str
+    local_filename: Path
 
-    def __init__(self, google_drive_link: str, *args, **kwargs) -> None:
+    def __init__(self, google_drive_link: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a GoogleDriveSource object."""
         super().__init__(*args, **kwargs)
 
         self.google_drive_link = google_drive_link
         self.poll_interval_sec = kwargs.get("poll_interval_sec", 60)
-        self.local_filename = os.path.join(tempfile.mkdtemp(), "file.txt")
+        self.local_filename = Path(tempfile.mkdtemp()) / "file.txt"
 
     def download(self) -> None:
+        """Download the file."""
         gdown.download(url=self.google_drive_link, output=self.local_filename, fuzzy=True, quiet=True)
 
     def run(self) -> None:
+        """Execute the run."""
         while True:
             if self.google_drive_link is None:
                 return
@@ -131,12 +153,12 @@ class GoogleDriveSource(ls.SourceTerm):
                 self.download()
 
                 encoding = None
-                with open(self.local_filename, "rb") as file:
+                with Path.open(self.local_filename, "rb") as file:
                     raw_file_contents = file.read()
                     encoding = chardet.detect(raw_file_contents)["encoding"]
 
                 file_contents = ""
-                with open(self.local_filename, encoding=encoding) as file:
+                with Path.open(self.local_filename, encoding=encoding) as file:
                     file_contents = file.read()
 
                 self.output(ls.DataItem({"Time": time.time(), "string": file_contents}))
@@ -146,13 +168,17 @@ class GoogleDriveSource(ls.SourceTerm):
 
 
 class StringDiff(ls.FunctionTerm):
+    """Compute the diff of strings."""
+
     old_string: str  # state
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a StringDiff object."""
         super().__init__(*args, **kwargs)
         self.old_string = ""
 
     def f(self, data: ls.DataItem) -> ls.DataItem:
+        """Execute on new data."""
         new_string = data["string"]
         ret_string = new_string.removeprefix(self.old_string)
         self.old_string = new_string
@@ -160,19 +186,25 @@ class StringDiff(ls.FunctionTerm):
 
 
 class LineSplitter(ls.FunctionTerm):
+    """Split into lines."""
+
     def f(self, data: ls.DataItem) -> None:
+        """Execute on new data."""
         lines = data["string"].replace("\r\n", "\n").split("\n")
         for line in lines:
             self.output(ls.DataItem({**data, "string": line}))
 
 
 class LineParser(ls.FunctionTerm):
+    """Parse lines."""
+
     comment: str
     delimiter: str
     has_header: bool
     header: list[str] | None  # state
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a LineParser object."""
         super().__init__(*args, **kwargs)
         self.comment = kwargs.get("comment", "#")
         self.delimiter = kwargs.get("delimiter", "\t")
@@ -180,6 +212,7 @@ class LineParser(ls.FunctionTerm):
         self.header = None
 
     def f(self, data: ls.DataItem) -> ls.DataItem | None:
+        """Execute on new data."""
         line = data["string"]
         if len(line) > 0 and line[0] == self.comment:
             # comment line
