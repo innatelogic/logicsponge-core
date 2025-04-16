@@ -1226,15 +1226,17 @@ class FunctionTerm(Term):
             self._thread.start()
 
     def next(self, input_stream: DataStreamView) -> None:
+        """Wait for next data on input stream."""
         input_stream.next()
 
     def output(self, data: DataItem | None) -> None:
-        """Appends data to the output stream if data is not None."""
+        """Append data to the output stream if data is not None."""
         if data is not None:
             self._output.append(data)
 
     @property
     def stats(self) -> dict:
+        """Return statistics."""
         term_type = self.__class__.__name__
         return {
             "name": self.name,
