@@ -64,7 +64,7 @@ class LatencyQueue:
 
     @property
     def avg(self) -> float:
-        """Average latency in [s]"""
+        """Average latency in seconds."""
         latencies = list(self.queue)
         if self.tic_time is not None:
             current_latency = datetime.now(UTC).timestamp() - self.tic_time
@@ -75,7 +75,7 @@ class LatencyQueue:
 
     @property
     def max(self) -> float:
-        """Max latency in [s]"""
+        """Maximum latency in seconds."""
         latencies = list(self.queue)
         if self.tic_time is not None:
             current_latency = datetime.now(UTC).timestamp() - self.tic_time
@@ -423,6 +423,8 @@ class DataStream:
     _history_bound: HistoryBound
     _history_lock: threading.Lock
 
+    _new_data_callbacks: list[Callable[[DataItem], None]]
+
     def __init__(self, owner: "Term") -> None:
         """Initialize an empty DataStream.
 
@@ -439,6 +441,8 @@ class DataStream:
 
         self._history_bound = NoneBound()
         self._history_lock = threading.Lock()
+
+        self._new_data_callbacks = []
 
     def _set_id(self, new_id: str) -> Self:
         """Set ID of the DataStream.
@@ -521,6 +525,8 @@ class DataStream:
         ):  # LIVENESS: Doesn't request another lock from DataStream, thus follows from liveness of SharedQueue.append.
             self._data.append(di)
         self.clean_history()
+        for fun in self._new_data_callbacks:
+            fun(di)
         return self
 
     def set_history_bound(self, history_bound: HistoryBound) -> Self:
@@ -588,6 +594,16 @@ class DataStream:
         """
         # SAFETY: From safety of SharedQueue.len_until_first_cursor
         return self._data.len_until_first_cursor()
+
+    def register_new_data_callback(self, callback: Callable[[DataItem], None]) -> None:
+        """Register a "new data" callback function for the DataStream.
+
+        Args:
+            callback: the callback function. Is called whenever a new DataItem is appended to the DataStream
+
+        """
+        with self._lock.gen_wlock():  # LIVENESS: Doesn't request another lock
+            self._new_data_callbacks.append(callback)
 
 
 class DataStreamView:
@@ -685,6 +701,15 @@ class DataStreamView:
         # SAFETY: Use of _lock for ID and from safety of SharedQueueView.to_list.
         with self._lock.gen_rlock():
             return f"DataStreamView(id={self.get_id()}): {self._view.to_list()}"
+
+    def peek(self) -> bool:
+        """Check whether a new DataItem is ready.
+
+        Returns:
+            True iff a new DataItem is ready (i.e., a call to next will not block)
+
+        """
+        return self._view.peek()
 
     def next(self) -> None:
         """Advance the DataStreamView's cursor by one DataItem.
@@ -1015,7 +1040,7 @@ class FunctionTerm(Term):
                     for input_stream in inputs:
                         input_stream.next()
                     self._latency_queue.tic()
-                    input_values = tuple([input_stream[-1] for input_stream in inputs])
+                    input_values = tuple(input_stream[-1] for input_stream in inputs)
                     if any(di.get_control_signal(Control.EOS) for di in input_values):
                         # we stop if any input stream signals EOS
                         self.eos()
@@ -1449,31 +1474,46 @@ class MergeToSingleStream(FunctionTerm):
 
 
 class Linearizer(FunctionTerm):
-    linearized_input: DataStreamView  # contains linearized inputs together with global time stamp
+    _info: bool
+
+    _lock: rwlock.RWLockFair
+    _new_data: threading.Condition
 
     def __init__(self, *args, info: bool = True, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        ds = DataStream(owner=self)
-        self.linearized_input = DataStreamView(ds=ds, owner=self)
-        self.info = info
 
-    def _callback_new_data(self, name, dataitem):
-        """Callback function to be executed when new input data item arrives (see _add_input)."""
-        dict_row = DataItem({"name": name, "data": dataitem}) if self.info else dataitem
+        self._info = info
 
-        self.linearized_input.ds.append(dict_row)
+        self._lock = rwlock.RWLockFair()
+        self._new_data = threading.Condition()
+
+    def _callback_new_data(self, di: DataItem) -> None:
+        with self._new_data:
+            self._new_data.notify_all()
 
     def _add_input(self, name: str, ds: DataStream):
-        def new_data_callback(dataitem):
-            self._callback_new_data(name, dataitem)
+        super()._add_input(name, ds)
+        ds.register_new_data_callback(self._callback_new_data)
 
-        ds.new_data_callbacks.append(new_data_callback)
+    def run(self, dsvs: dict[str, DataStreamView]):
+        active_dsv_names = set(dsvs.keys())
+        while active_dsv_names:  # not empty
+            with self._new_data:
+                self._new_data.wait_for(lambda: any(dsvs[name].peek() for name in dsvs))
 
-    def run(self, dss: dict[str, DataStreamView]):
-        _ = dss  # otherwise unused
-        while True:
-            self.linearized_input.next()
-            self.output(self.linearized_input[-1])
+            name_to_remove = None
+            for name in active_dsv_names:
+                if dsvs[name].peek():
+                    dsvs[name].next()  # LIVENESS: can't block since only we call next on our views and peek() was True
+                    di = dsvs[name][-1]
+                    if di.get_control_signal(Control.EOS):
+                        name_to_remove = name
+                    else:
+                        self.output(DataItem({"name": name, "data": di}) if self._info else di)
+                    break
+
+            if name_to_remove is not None:
+                active_dsv_names.remove(name_to_remove)
 
 
 class KeyValueFilter(FunctionTerm):
