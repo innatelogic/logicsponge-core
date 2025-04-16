@@ -1,6 +1,6 @@
 """Statistics for logcisponge."""
 
-from typing import Any, Never
+from typing import Any
 
 import numpy as np
 import scipy.stats

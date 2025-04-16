@@ -1335,7 +1335,7 @@ class DynamicSpawnTerm(Term):
                 new_term._set_id(f"id:{iden}")  # noqa: SLF001
                 new_term._add_input(f"ds:{iden}", new_ds)  # noqa: SLF001
                 eos_filter._outputs = self._outputs  # noqa: SLF001
-                eos_filter._output = self._output  # type: ignore # noqa: SLF001 # TODO: new_term may not have _output
+                eos_filter._output = self._output  # noqa: SLF001 # TODO: new_term may not have _output
                 new_term.start()
 
                 self._spawned_streams[iden] = new_ds
@@ -1560,15 +1560,16 @@ class Linearizer(FunctionTerm):
         self._lock = rwlock.RWLockFair()
         self._new_data = threading.Condition()
 
-    def _callback_new_data(self, di: DataItem) -> None:
+    def _callback_new_data(self, di: DataItem) -> None:  # noqa: ARG002
         with self._new_data:
             self._new_data.notify_all()
 
-    def _add_input(self, name: str, ds: DataStream):
+    def _add_input(self, name: str, ds: DataStream) -> None:
         super()._add_input(name, ds)
         ds.register_new_data_callback(self._callback_new_data)
 
-    def run(self, dsvs: dict[str, DataStreamView]):
+    def run(self, dsvs: dict[str, DataStreamView]) -> None:
+        """Execute on run."""
         active_dsv_names = set(dsvs.keys())
         while active_dsv_names:  # not empty
             with self._new_data:
@@ -1642,6 +1643,7 @@ class DataItemFilter(FunctionTerm):
         self.data_item_filter = data_item_filter
 
     def f(self, item: DataItem) -> DataItem | None:
+        """Execute on new data."""
         if self.data_item_filter is None or self.data_item_filter(item):
             return item
         return None
@@ -1655,7 +1657,7 @@ class KeyFilter(KeyValueFilter):
 
     def __init__(
         self,
-        *args,
+        *args,  # noqa: ANN002
         keys: None | str | list[str] = None,
         not_keys: None | str | list[str] = None,
         **kwargs,  # noqa: ANN003
@@ -1685,13 +1687,13 @@ class KeyFilter(KeyValueFilter):
         if self.keys is not None:
             keys_list = [self.keys] if isinstance(self.keys, str) else self.keys
 
-            def key_value_filter(key: str, value: Any) -> bool:  # noqa: ARG001
+            def key_value_filter(key: str, value: Any) -> bool:  # noqa: ANN401, ARG001
                 return key in keys_list
 
         else:
             not_keys_list = [self.not_keys] if isinstance(self.not_keys, str) else self.not_keys or []
 
-            def key_value_filter(key: str, value: Any) -> bool:  # noqa: ARG001
+            def key_value_filter(key: str, value: Any) -> bool:  # noqa: ANN401, ARG001
                 return key not in not_keys_list
 
         super().__init__(*args, key_value_filter=key_value_filter, **kwargs)
@@ -1747,7 +1749,7 @@ class PPrint(Print):
 
     def __init__(
         self,
-        *args,
+        *args,  # noqa: ANN002
         keys: None | str | list[str] = None,
         print_fun: Callable = pprint.pprint,
         **kwargs,  # noqa: ANN003
