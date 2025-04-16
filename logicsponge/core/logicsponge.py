@@ -786,7 +786,14 @@ class DataStreamView:
 
 
 class Term(ABC):
-    """The basic Term class."""
+    """The basic Term class.
+
+    Attributes:
+        name (str): The name of the Term. This will also be the name
+            of the output stream.
+        id (str, optional): Unique id of the Term, or None.
+
+    """
 
     name: str
     id: str | None
@@ -818,14 +825,14 @@ class Term(ABC):
         pass
 
     def __mul__(self, other: "Term") -> "SequentialTerm":
-        """Compose sequentially."""
+        """Compose the Term sequentially with the other Term."""
         if isinstance(other, Term):
             return SequentialTerm(self, other)
         msg = "Only terms can be combined in sequence"
         raise TypeError(msg)
 
     def __or__(self, other: "Term") -> "ParallelTerm":
-        """Compose in parallel."""
+        """Compose the Term in parallel with the other Term."""
         if isinstance(other, Term):
             return ParallelTerm(self, other)
         msg = "Only terms can be combined in parallel"
@@ -841,7 +848,7 @@ class Term(ABC):
 
     @abstractmethod
     def join(self) -> None:
-        """Wait for a Term to stop its execution."""
+        """Wait for a Term to terminate."""
 
     def cancel(self) -> None:
         """Cancel the Term."""
