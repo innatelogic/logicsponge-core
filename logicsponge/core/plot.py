@@ -53,7 +53,7 @@ class Plot(ls.FunctionTerm):
         x: str = "round",
         y: str | list[str] | None = None,
         incremental: bool = True,
-        **kwargs,  # noqa: ANN002, ANN003
+        **kwargs,  # noqa: ANN003
     ) -> None:
         """Create a Plot object."""
         super().__init__(*args, **kwargs)
