@@ -251,7 +251,7 @@ class DeepPlot(ls.FunctionTerm):
         return item
 
     def then(self, fun: Callable[[Self, ls.DataItem], None]) -> Self:
-        """run a function after the plotting"""
+        """Run a function after the plotting"""
         self.then_fun = fun
         return self
 

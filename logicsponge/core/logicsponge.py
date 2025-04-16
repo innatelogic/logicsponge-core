@@ -44,17 +44,22 @@ State = dict[str, Any]
 
 
 class LatencyQueue:
+    """A queue of latencies, used to generate statistics of terms."""
+
     queue: deque
     tic_time: float | None
 
     def __init__(self, max_size: int = 100) -> None:
+        """Create a LatencyQueue object."""
         self.tic_time = None
         self.queue = deque(maxlen=max_size)
 
     def tic(self) -> None:
+        """Start a latency measurement."""
         self.tic_time = datetime.now(UTC).timestamp()
 
     def toc(self) -> None:
+        """Stop a latency measurement."""
         toc_time = datetime.now(UTC).timestamp()
         if self.tic_time is None:
             msg = "need to tic first"
@@ -721,6 +726,7 @@ class DataStreamView:
         self._view.next()
 
     def tail(self, n: int) -> list[DataItem]:
+        """Return the tail."""
         raise NotImplementedError
         if n <= 0:
             raise IndexError(n)
@@ -728,6 +734,7 @@ class DataStreamView:
 
     @property
     def stats(self) -> ViewStatistics:
+        """Return statistics."""
         raise NotImplementedError
         return {
             "read": self.pos,
@@ -735,8 +742,12 @@ class DataStreamView:
         }
 
     def key_to_list(self, key: str, *, include_missing: bool = False) -> list[Any]:
-        """Return the list of values associated with key in each DataItem
-        (include_missing indicates whether None is included if the key/value doesn't exist).
+        """Return the list of values associated with key in each DataItem.
+
+        Args:
+            key (str): the key.
+            include_missing (bool): Indicates whether None is included if the key/value doesn't exist.
+
         """
         raise NotImplementedError
 
@@ -747,12 +758,15 @@ class DataStreamView:
 
 
 class Term(ABC):
+    """The basic Term class."""
+
     name: str
     id: str | None
     _outputs: dict[str, DataStream]
     _parent: "Term | None"
 
-    def __init__(self, name: str | None = None, **kwargs) -> None:  # noqa: ARG002
+    def __init__(self, name: str | None = None, **kwargs) -> None:  # noqa: ANN003, ARG002
+        """Create a Term."""
         # self.inputs: dict[str, DataStream] = {}
         # self.outputs: dict[str, DataStream] = {}
         self.id = None
@@ -776,43 +790,50 @@ class Term(ABC):
         pass
 
     def __mul__(self, other: "Term") -> "SequentialTerm":
+        """Compose sequentially."""
         if isinstance(other, Term):
             return SequentialTerm(self, other)
         msg = "Only terms can be combined in sequence"
         raise TypeError(msg)
 
     def __or__(self, other: "Term") -> "ParallelTerm":
+        """Compose in parallel."""
         if isinstance(other, Term):
             return ParallelTerm(self, other)
         msg = "Only terms can be combined in parallel"
         raise TypeError(msg)
 
     @abstractmethod
-    def start(self, *, persistent: bool = False):
-        """Starts execution of the term"""
+    def start(self, *, persistent: bool = False) -> None:
+        """Start execution of the term."""
 
     @abstractmethod
-    def stop(self):
-        """Signals a Term to stop its execution."""
+    def stop(self) -> None:
+        """Signal a Term to stop its execution."""
 
     @abstractmethod
-    def join(self):
-        """Waits for a Term to stop its execution."""
+    def join(self) -> None:
+        """Wait for a Term to stop its execution."""
 
-    def cancel(self):
-        """Cancels the term"""
+    def cancel(self) -> None:
+        """Cancel the Term."""
+        return
 
     def __str__(self) -> str:
+        """Return a str representation."""
         return f"Term({self.name})"
 
 
 class SourceTerm(Term):
+    """Term that acts as a source."""
+
     _thread: threading.Thread | None
     _output: DataStream
     _stop_event: threading.Event
     state: State
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a SourceTerm object."""
         super().__init__(*args, **kwargs)
         self._output = DataStream(owner=self)
         self._outputs[self.name] = self._output
@@ -830,21 +851,21 @@ class SourceTerm(Term):
         # set DataStream ID
         self._output._set_id(f"{self.id}:output")  # noqa: SLF001
 
-    def run(self):
-        """Overwrite this function to produce the source's output"""
+    def run(self) -> None:
+        """Overwrite this function to produce the source's output."""
 
-    def enter(self):
-        """Overwrite this function to initialize the source term's thread"""
+    def enter(self) -> None:
+        """Overwrite this function to initialize the source term's thread."""
 
-    def exit(self):
-        """Overwrite this function to clean up the source term's thread"""
+    def exit(self) -> None:
+        """Overwrite this function to clean up the source term's thread."""
 
-    def start(self, *, persistent: bool = False):
-        """Start the source term's thread"""
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start the source term's thread."""
         if not self.id:
             self._set_id("root")
 
-        def execute(stop_event: threading.Event):  # noqa: ARG001
+        def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
             self.enter()
             try:
                 self.run()
@@ -858,15 +879,18 @@ class SourceTerm(Term):
             self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
             self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stop the Source."""
         self._stop_event.set()
-        logging.debug("%s stopped", self)
+        logger.debug("%s stopped", self)
 
-    def join(self):
+    def join(self) -> None:
+        """Wait for the source thread to terminate."""
         if self._thread is not None:
             self._thread.join()
 
     def output(self, data: DataItem) -> None:
+        """Output data."""
         data.set_time_to_now()
         self._output.append(data)
 
@@ -878,6 +902,7 @@ class SourceTerm(Term):
 
     @property
     def stats(self) -> dict:
+        """Return the source's statistics."""
         last_times = [di.time for di in self._output.to_list()]
         latency_avg = (last_times[-1] - last_times[0]) / len(last_times) if len(last_times) > 1 else float("nan")
         latency_max = (
@@ -903,19 +928,27 @@ class ConstantSourceTerm(SourceTerm):
 
     _items: list[DataItem]
 
-    def __init__(self, items: list[DataItem], *args, **kwargs):
-        """items: list[DataItem]
-        List of data items to output.
+    def __init__(self, items: list[DataItem], *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a ConstantSourceTerm object.
+
+        Args:
+            items (list[DataItem]): List of data items to output.
+            *args: Additional args.
+            **kwargs: Additional kwargs.
+
         """
         super().__init__(*args, **kwargs)
         self._items = items
 
-    def run(self):
+    def run(self) -> None:
+        """Execute run."""
         for item in self._items:
             self.output(item)
 
 
 class FunctionTerm(Term):
+    """A Term that receives data, performs a function on it, and outputs the resulting data."""
+
     _inputs: dict[str, DataStreamView]  # name -> input stream view
     _output: DataStream
     _thread: threading.Thread | None
@@ -923,7 +956,8 @@ class FunctionTerm(Term):
     _latency_queue: LatencyQueue
     state: State
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a FunctionTerm object."""
         super().__init__(*args, **kwargs)
         self._inputs = {}
         self._output = DataStream(owner=self)
@@ -953,28 +987,32 @@ class FunctionTerm(Term):
         self.output(eos_di)
         self.stop()
 
-    def f(self, *args, **kwargs):
+    def f(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+        """Execute f."""
         raise NotImplementedError
 
-    def run(self, *args, **kwargs):
+    def run(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Execute run."""
         raise NotImplementedError
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stop the Term."""
         self._stop_event.set()
-        logging.debug("%s stopped", self)
+        logger.debug("%s stopped", self)
 
-    def join(self):
+    def join(self) -> None:
+        """Wait until the Term terminates."""
         if self._thread is not None:
             self._thread.join()
 
-    def enter(self):
-        """Overwrite this function to initialize the function term's thread"""
+    def enter(self) -> None:
+        """Overwrite this function to initialize the function term's thread."""
 
-    def exit(self):
-        """Overwrite this function to clean up the function term's thread"""
+    def exit(self) -> None:
+        """Overwrite this function to clean up the function term's thread."""
 
-    def start(self, *, persistent: bool = False):
-        """Start the function term's thread"""
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002, C901, PLR0912, PLR0915
+        """Start the function term's thread."""
         if not self.id:
             self._set_id("root")
 
@@ -1147,7 +1185,8 @@ class FunctionTerm(Term):
                     msg = f"class {self.__class__}: could not match run() with types {annotations_run}"
                     raise ValueError(msg)
             else:
-                ValueError(f"class {self.__class__}: could not match run() with types {annotations_run}")
+                msg = f"class {self.__class__}: could not match run() with types {annotations_run}"
+                raise ValueError(msg)
 
         elif annotations_f is not None:
             if len(annotations_f) == 1:
@@ -1170,7 +1209,7 @@ class FunctionTerm(Term):
 
             else:
                 msg = f"class {self.__class__}: could not match f() with types {annotations_f}"
-                ValueError(msg)
+                raise ValueError(msg)
 
         else:
             msg = f"class {self.__class__}: could not find f() or run() with supported types."
@@ -1221,7 +1260,8 @@ class DynamicSpawnTerm(Term):
     _output: DataStream
     _outputs: dict[str, DataStream]
 
-    def __init__(self, filter_key: str, spawn_fun: Callable[[Hashable], Term], *args, **kwargs):
+    def __init__(self, filter_key: str, spawn_fun: Callable[[Hashable], Term], *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a DynamicSpawnTerm object."""
         super().__init__(*args, **kwargs)
         self._filter_key = filter_key
         self._spawn_fun = spawn_fun
@@ -1250,12 +1290,13 @@ class DynamicSpawnTerm(Term):
         for name, ds in self._inputs.items():
             ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False):
+    def start(self, *, persistent: bool = False) -> None:
+        """Start the Term."""
         if persistent:
             msg = "Persistence not implemented for DynamicSpawnTerms"
             raise NotImplementedError(msg)
 
-        def execute(stop_event: threading.Event):  # noqa: ARG001
+        def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
             if inputs is None:
                 return
@@ -1273,7 +1314,8 @@ class DynamicSpawnTerm(Term):
             self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
             self._thread.start()
 
-    def run(self, ds: DataStreamView):
+    def run(self, ds: DataStreamView) -> None:
+        """Execute run."""
         ds.next()
         while True:  # until received EOS
             di = ds[-1]
@@ -1312,22 +1354,25 @@ class DynamicSpawnTerm(Term):
         self._output.append(eos_di)
         self.stop()
 
-    def enter(self):
+    def enter(self) -> None:
         """Overwrite this function to initialize the term's thread."""
 
-    def exit(self):
+    def exit(self) -> None:
         """Overwrite this function to clean up the term's thread."""
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stop the Term."""
         self._stop_event.set()
-        logging.debug("%s stopped", self)
+        logger.debug("%s stopped", self)
 
-    def join(self):
+    def join(self) -> None:
+        """Wait for the Term to terminate."""
         if self._thread is not None:
             self._thread.join()
 
     @property
     def stats(self) -> dict:
+        """Return the statistics."""
         term_type = self.__class__.__name__
         return {
             "name": self.name,
@@ -1343,10 +1388,13 @@ class DynamicSpawnTerm(Term):
 
 
 class CompositeTerm(Term):
+    """A Term that is composed of other Terms."""
+
     term_left: Term
     term_right: Term
 
     def __init__(self, term_left: Term, term_right: Term) -> None:
+        """Create a CompositeTerm object."""
         super().__init__()
         self.term_left = term_left
         self.term_right = term_right
@@ -1354,7 +1402,8 @@ class CompositeTerm(Term):
         self.term_left._parent = self  # noqa: SLF001
         self.term_right._parent = self  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False):
+    def start(self, *, persistent: bool = False) -> None:
+        """Start the Term."""
         if not self.id:
             self._set_id("root")
 
@@ -1362,22 +1411,27 @@ class CompositeTerm(Term):
         self.term_right.start(persistent=persistent)
 
     def stop(self) -> None:
+        """Stop the Term."""
         # signal components to stop
         self.term_left.stop()
         self.term_right.stop()
 
-    def join(self):
+    def join(self) -> None:
+        """Wait until the Term terminates."""
         self.term_left.join()
         self.term_right.join()
 
 
 class ParallelTerm(CompositeTerm):
-    def __init__(self, *args, **kwargs) -> None:
+    """Parallel composition of Terms."""
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a ParallelTerm object."""
         super().__init__(*args, **kwargs)
         # maybe copy?
         self._outputs = merge_dicts(self.term_left._outputs, self.term_right._outputs)  # noqa: SLF001
 
-    def _add_input(self, name: str, ds: DataStream):
+    def _add_input(self, name: str, ds: DataStream) -> None:
         # broadcast inputs
         self.term_left._add_input(name, ds)  # noqa: SLF001
         self.term_right._add_input(name, ds)  # noqa: SLF001
@@ -1389,19 +1443,23 @@ class ParallelTerm(CompositeTerm):
         self.id = new_id
 
     def __str__(self) -> str:
+        """Return as string."""
         str_left = str(self.term_left)[1:-1] if isinstance(self.term_left, ParallelTerm) else str(self.term_left)
         str_right = str(self.term_right)[1:-1] if isinstance(self.term_right, ParallelTerm) else str(self.term_right)
         return "(" + str_left + " | " + str_right + ")"
 
 
 class SequentialTerm(CompositeTerm):
-    def __init__(self, *args, **kwargs) -> None:
+    """Sequential composition of Terms."""
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a SequentialTerm object."""
         super().__init__(*args, **kwargs)
         self.term_right._add_inputs(self.term_left._outputs)  # noqa: SLF001
         # maybe copy?
         self._outputs = self.term_right._outputs  # noqa: SLF001
 
-    def _add_input(self, name: str, ds: DataStream):
+    def _add_input(self, name: str, ds: DataStream) -> None:
         self.term_left._add_input(name, ds)  # noqa: SLF001
 
     def _set_id(self, new_id: str) -> None:
@@ -1411,6 +1469,7 @@ class SequentialTerm(CompositeTerm):
         self.id = new_id
 
     def __str__(self) -> str:
+        """Return as string."""
         str_left = str(self.term_left)[1:-1] if isinstance(self.term_left, SequentialTerm) else str(self.term_left)
         str_right = str(self.term_right)[1:-1] if isinstance(self.term_right, SequentialTerm) else str(self.term_right)
         return "(" + str_left + "; " + str_right + ")"
@@ -1425,14 +1484,17 @@ class Stop(Term):
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
 
-    def start(self, *, persistent: bool = False):  # noqa: ARG002
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start the Term."""
         if not self.id:
             self._set_id("root")
 
     def stop(self) -> None:
-        pass
+        """Stop the Term."""
+        return
 
-    def join(self):
+    def join(self) -> None:
+        """Wait until Term terminates."""
         return
 
 
@@ -1441,11 +1503,13 @@ class Flatten(FunctionTerm):
 
     level: int | None
 
-    def __init__(self, *args, level: int | None = 1, **kwargs) -> None:
+    def __init__(self, *args, level: int | None = 1, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Flatten object."""
         super().__init__(*args, **kwargs)
         self.level = level
 
     def f(self, items: dict[str, DataItem]) -> DataItem:
+        """Execute f on new data."""
         if len(items) > 1:
             msg = "Cannot flatten more than one stream at once. Please merge first."
             raise ValueError(msg)
@@ -1455,11 +1519,15 @@ class Flatten(FunctionTerm):
 
 
 class MergeToSingleStream(FunctionTerm):
-    def __init__(self, *args, combine: bool = False, **kwargs) -> None:
+    """Merges multiple streams into a single stream."""
+
+    def __init__(self, *args, combine: bool = False, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a MergeToSingleStream object."""
         super().__init__(*args, **kwargs)
         self.combine = combine
 
     def f(self, items: dict[str, DataItem]) -> DataItem:
+        """Execute the Term's f."""
         ret: dict | dict[str, DataItem]
         if self.combine:
             # combine all into a single dict
@@ -1474,12 +1542,15 @@ class MergeToSingleStream(FunctionTerm):
 
 
 class Linearizer(FunctionTerm):
+    """Linearize into a single stream."""
+
     _info: bool
 
     _lock: rwlock.RWLockFair
     _new_data: threading.Condition
 
-    def __init__(self, *args, info: bool = True, **kwargs) -> None:
+    def __init__(self, *args, info: bool = True, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Linearizer object."""
         super().__init__(*args, **kwargs)
 
         self._info = info
@@ -1521,11 +1592,16 @@ class KeyValueFilter(FunctionTerm):
 
     key_value_filter: Callable[[str, Any], bool] | None
 
-    def __init__(self, *args, key_value_filter: Callable[[str, Any], bool] | None = None, **kwargs) -> None:
+    def __init__(self, *args, key_value_filter: Callable[[str, Any], bool] | None = None, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create a new KeyValueFilter.
 
-        key_value_filter: Callable[[str, Any], bool], optional
-        Filter to be applied to each key-value pair in data item.
+        Args:
+            key_value_filter (Callable[[str, Any], bool], optional): Filter to be applied to
+            each key-value pair in data item.
+
+            args: Additional args.
+            kwargs: Additional kwargs.
+
         """
         if key_value_filter is None and len(args) > 0 and has_callable_signature(args[0], (str, Any), bool):
             key_value_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
@@ -1536,6 +1612,7 @@ class KeyValueFilter(FunctionTerm):
         self.key_value_filter = key_value_filter
 
     def f(self, item: DataItem) -> DataItem:
+        """Run the f."""
         if self.key_value_filter is not None:
             filtered_attributes = {k: v for k, v in item.items() if self.key_value_filter(k, v)}
         else:
@@ -1548,7 +1625,7 @@ class DataItemFilter(FunctionTerm):
 
     data_item_filter: Callable[[DataItem], bool] | None
 
-    def __init__(self, *args, data_item_filter: Callable[[DataItem], bool] | None = None, **kwargs) -> None:
+    def __init__(self, *args, data_item_filter: Callable[[DataItem], bool] | None = None, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create a new DataItemFilter.
 
         key_value_filter: Callable[[DataItem], bool]
@@ -1575,7 +1652,11 @@ class KeyFilter(KeyValueFilter):
     not_keys: None | str | list[str]
 
     def __init__(
-        self, *args, keys: None | str | list[str] = None, not_keys: None | str | list[str] = None, **kwargs
+        self,
+        *args,
+        keys: None | str | list[str] = None,
+        not_keys: None | str | list[str] = None,
+        **kwargs,  # noqa: ANN003
     ) -> None:
         """Create a new KeyFilter.
 
@@ -1621,7 +1702,8 @@ class Print(FunctionTerm):
     not_keys: None | str | list[str]
     print_fun: Callable
 
-    def __init__(self, *args, keys: None | str | list[str] = None, print_fun: Callable = print, **kwargs):
+    def __init__(self, *args, keys: None | str | list[str] = None, print_fun: Callable = print, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Print object."""
         self.keys = None
         self.not_keys = None
         not_keys = kwargs.pop("not_keys", None)
@@ -1643,6 +1725,7 @@ class Print(FunctionTerm):
             self.not_keys = [not_keys] if isinstance(not_keys, str) else not_keys
 
     def f(self, item: DataItem) -> DataItem:
+        """Execute the Term's f."""
         if self.keys:
             filtered_item = {k: item[k] for k in self.keys if k in item}
         elif self.not_keys:
@@ -1660,36 +1743,45 @@ class Print(FunctionTerm):
 class PPrint(Print):
     """Like Print, with using pprint.pprint."""
 
-    def __init__(self, *args, keys: None | str | list[str] = None, print_fun: Callable = pprint.pprint, **kwargs):
+    def __init__(
+        self,
+        *args,
+        keys: None | str | list[str] = None,
+        print_fun: Callable = pprint.pprint,
+        **kwargs,  # noqa: ANN003
+    ) -> None:
+        """Create a PPrint object."""
         super().__init__(*args, keys=keys, print_fun=lambda s: print_fun(s, **kwargs), **kwargs)
 
 
 class PrintKeys(FunctionTerm):
-    """Prints the keys in a data item.
-    Outputs the original item.
-    """
+    """Prints the keys in a data item. Outputs the original item."""
 
     print_fun: Callable
 
-    def __init__(self, *args, print_fun: Callable = print, **kwargs):
+    def __init__(self, *args, print_fun: Callable = print, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a PrintKeys object."""
         self.print_fun = print_fun
         super().__init__(*args, **kwargs)
 
     def f(self, item: DataItem) -> DataItem:
+        """Run the Term's f."""
         self.print_fun(list(item.keys()))
         return item  # return original item
 
 
 class Dump(FunctionTerm):
-    """Prints the whole DataStream at every new item"""
+    """Print the whole DataStream at every new item."""
 
     print_fun: Callable
 
-    def __init__(self, *args, print_fun: Callable = print, **kwargs):
+    def __init__(self, *args, print_fun: Callable = print, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Dump object."""
         self.print_fun = print_fun
         super().__init__(*args, **kwargs)
 
     def f(self, di: DataItem):
+        """Run the Term's f."""
         self.print_fun(di)
 
 
@@ -1698,7 +1790,8 @@ class Rename(FunctionTerm):
 
     fun: Callable[[str], str]
 
-    def __init__(self, *args, fun: Callable[[str], str] | dict[str, str] = lambda x: x, **kwargs):
+    def __init__(self, *args, fun: Callable[[str], str] | dict[str, str] = lambda x: x, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Rename object."""
         super().__init__(*args, **kwargs)
         if isinstance(fun, dict):
             # rename via dict
@@ -1708,16 +1801,19 @@ class Rename(FunctionTerm):
             self.fun = fun
 
     def f(self, item: DataItem) -> DataItem:
+        """Run the Term's f."""
         return DataItem({self.fun(k): v for k, v in item.items()})
 
 
 class Id(FunctionTerm):
-    """Identity"""
+    """Identity. Id only forwards the 1st stream."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an Id object."""
         super().__init__(*args, **kwargs)
 
     def f(self, item: DataItem) -> DataItem:
+        """Forward data."""
         return item
 
 
@@ -1728,10 +1824,12 @@ class EosFilter(Id):
     This is almost always undesired behavior; use with caution.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an EosFilter object."""
         super().__init__(*args, **kwargs)
 
-    def eos(self):
+    def eos(self) -> None:
+        """Run in case of eos in stream."""
         self.stop()
 
 
@@ -1741,7 +1839,7 @@ class AddIndex(FunctionTerm):
     key: str
     index: int
 
-    def __init__(self, *args, key: str, index: int = 0, **kwargs):
+    def __init__(self, *args, key: str, index: int = 0, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.key = key
         self.index = index

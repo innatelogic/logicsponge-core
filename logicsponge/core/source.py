@@ -154,7 +154,7 @@ class StringDiff(ls.FunctionTerm):
 
     def f(self, data: ls.DataItem) -> ls.DataItem:
         new_string = data["string"]
-        ret_string = new_string[len(self.old_string) :] if new_string.startswith(self.old_string) else new_string
+        ret_string = new_string.removeprefix(self.old_string)
         self.old_string = new_string
         return ls.DataItem({**data, "string": ret_string})
 
