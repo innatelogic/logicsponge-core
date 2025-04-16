@@ -44,22 +44,40 @@ State = dict[str, Any]
 
 
 class LatencyQueue:
-    """A queue of latencies, used to generate statistics of terms."""
+    """A queue of latencies, used to generate statistics of terms.
+
+    Attributes:
+        queue (deque): The queue of latencies.
+        tic_time (float, optional): time of last tic() execution.
+
+    """
 
     queue: deque
     tic_time: float | None
 
     def __init__(self, max_size: int = 100) -> None:
-        """Create a LatencyQueue object."""
+        """Create a LatencyQueue object.
+
+        Args:
+            max_size (int): the maximal size of the queue. Adding to a queue of this size, leads to
+                the removal of the oldest entry.
+
+        """
         self.tic_time = None
         self.queue = deque(maxlen=max_size)
 
     def tic(self) -> None:
-        """Start a latency measurement."""
+        """Start a latency measurement.
+
+        To be used with a successive toc().
+        """
         self.tic_time = datetime.now(UTC).timestamp()
 
     def toc(self) -> None:
-        """Stop a latency measurement."""
+        """Stop a latency measurement.
+
+        Call after a corresponding tic().
+        """
         toc_time = datetime.now(UTC).timestamp()
         if self.tic_time is None:
             msg = "need to tic first"
@@ -69,7 +87,12 @@ class LatencyQueue:
 
     @property
     def avg(self) -> float:
-        """Average latency in seconds."""
+        """Average latency in seconds.
+
+        Returns:
+            float: The average of all latencies in the queue. In [s].
+
+        """
         latencies = list(self.queue)
         if self.tic_time is not None:
             current_latency = datetime.now(UTC).timestamp() - self.tic_time
@@ -80,7 +103,12 @@ class LatencyQueue:
 
     @property
     def max(self) -> float:
-        """Maximum latency in seconds."""
+        """Maximum latency in seconds.
+
+        Returns:
+            float: The maximum of all latencies in the queue. In [s].
+
+        """
         latencies = list(self.queue)
         if self.tic_time is not None:
             current_latency = datetime.now(UTC).timestamp() - self.tic_time
