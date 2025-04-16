@@ -903,19 +903,27 @@ class ConstantSourceTerm(SourceTerm):
 
     _items: list[DataItem]
 
-    def __init__(self, items: list[DataItem], *args, **kwargs):  # noqa: ANN002, ANN003
-        """items: list[DataItem]
-        List of data items to output.
+    def __init__(self, items: list[DataItem], *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a ConstantSourceTerm object.
+
+        Args:
+            items (list[DataItem]): List of data items to output.
+            *args: Additional args.
+            **kwargs: Additional kwargs.
+
         """
         super().__init__(*args, **kwargs)
         self._items = items
 
-    def run(self):
+    def run(self) -> None:
+        """Execute run."""
         for item in self._items:
             self.output(item)
 
 
 class FunctionTerm(Term):
+    """A Term that receives data, performs a function on it, and outputs the resulting data."""
+
     _inputs: dict[str, DataStreamView]  # name -> input stream view
     _output: DataStream
     _thread: threading.Thread | None
@@ -923,7 +931,8 @@ class FunctionTerm(Term):
     _latency_queue: LatencyQueue
     state: State
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a FunctionTerm object."""
         super().__init__(*args, **kwargs)
         self._inputs = {}
         self._output = DataStream(owner=self)
@@ -953,28 +962,32 @@ class FunctionTerm(Term):
         self.output(eos_di)
         self.stop()
 
-    def f(self, *args, **kwargs):
+    def f(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+        """Execute f."""
         raise NotImplementedError
 
-    def run(self, *args, **kwargs):
+    def run(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Execute run."""
         raise NotImplementedError
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stop the Term."""
         self._stop_event.set()
-        logging.debug("%s stopped", self)
+        logger.debug("%s stopped", self)
 
-    def join(self):
+    def join(self) -> None:
+        """Wait until the Term terminates."""
         if self._thread is not None:
             self._thread.join()
 
-    def enter(self):
-        """Overwrite this function to initialize the function term's thread"""
+    def enter(self) -> None:
+        """Overwrite this function to initialize the function term's thread."""
 
-    def exit(self):
-        """Overwrite this function to clean up the function term's thread"""
+    def exit(self) -> None:
+        """Overwrite this function to clean up the function term's thread."""
 
-    def start(self, *, persistent: bool = False):
-        """Start the function term's thread"""
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002, C901, PLR0912, PLR0915
+        """Start the function term's thread."""
         if not self.id:
             self._set_id("root")
 
@@ -1147,7 +1160,8 @@ class FunctionTerm(Term):
                     msg = f"class {self.__class__}: could not match run() with types {annotations_run}"
                     raise ValueError(msg)
             else:
-                ValueError(f"class {self.__class__}: could not match run() with types {annotations_run}")
+                msg = f"class {self.__class__}: could not match run() with types {annotations_run}"
+                raise ValueError(msg)
 
         elif annotations_f is not None:
             if len(annotations_f) == 1:
@@ -1170,7 +1184,7 @@ class FunctionTerm(Term):
 
             else:
                 msg = f"class {self.__class__}: could not match f() with types {annotations_f}"
-                ValueError(msg)
+                raise ValueError(msg)
 
         else:
             msg = f"class {self.__class__}: could not find f() or run() with supported types."

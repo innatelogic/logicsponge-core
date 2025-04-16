@@ -66,9 +66,7 @@ def test_both():
 
 
 def test_n():
-    """
-    check if n graph works
-    """
+    """Check if n graph works"""
     x = ls.FunctionTerm("x")
     y = ls.FunctionTerm("y")
     a = ls.FunctionTerm("a")
@@ -82,9 +80,7 @@ def test_n():
 
 
 def test_n_reverse():
-    """
-    check if n graph works
-    """
+    """Check if n graph works"""
     x = ls.FunctionTerm("x")
     y = ls.FunctionTerm("y")
     a = ls.FunctionTerm("a")
