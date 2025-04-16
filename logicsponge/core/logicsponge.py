@@ -1235,7 +1235,8 @@ class DynamicSpawnTerm(Term):
     _output: DataStream
     _outputs: dict[str, DataStream]
 
-    def __init__(self, filter_key: str, spawn_fun: Callable[[Hashable], Term], *args, **kwargs):
+    def __init__(self, filter_key: str, spawn_fun: Callable[[Hashable], Term], *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a DynamicSpawnTerm object."""
         super().__init__(*args, **kwargs)
         self._filter_key = filter_key
         self._spawn_fun = spawn_fun
@@ -1264,12 +1265,13 @@ class DynamicSpawnTerm(Term):
         for name, ds in self._inputs.items():
             ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False):
+    def start(self, *, persistent: bool = False) -> None:
+        """Start the Term."""
         if persistent:
             msg = "Persistence not implemented for DynamicSpawnTerms"
             raise NotImplementedError(msg)
 
-        def execute(stop_event: threading.Event):  # noqa: ARG001
+        def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
             if inputs is None:
                 return
@@ -1287,7 +1289,8 @@ class DynamicSpawnTerm(Term):
             self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
             self._thread.start()
 
-    def run(self, ds: DataStreamView):
+    def run(self, ds: DataStreamView) -> None:
+        """Execute run."""
         ds.next()
         while True:  # until received EOS
             di = ds[-1]
@@ -1326,22 +1329,25 @@ class DynamicSpawnTerm(Term):
         self._output.append(eos_di)
         self.stop()
 
-    def enter(self):
+    def enter(self) -> None:
         """Overwrite this function to initialize the term's thread."""
 
-    def exit(self):
+    def exit(self) -> None:
         """Overwrite this function to clean up the term's thread."""
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stop the Term."""
         self._stop_event.set()
-        logging.debug("%s stopped", self)
+        logger.debug("%s stopped", self)
 
-    def join(self):
+    def join(self) -> None:
+        """Wait for the Term to terminate."""
         if self._thread is not None:
             self._thread.join()
 
     @property
     def stats(self) -> dict:
+        """Return the statistics."""
         term_type = self.__class__.__name__
         return {
             "name": self.name,
@@ -1357,10 +1363,13 @@ class DynamicSpawnTerm(Term):
 
 
 class CompositeTerm(Term):
+    """A Term that is composed of other Terms."""
+
     term_left: Term
     term_right: Term
 
     def __init__(self, term_left: Term, term_right: Term) -> None:
+        """Create a CompositeTerm object."""
         super().__init__()
         self.term_left = term_left
         self.term_right = term_right
@@ -1368,7 +1377,8 @@ class CompositeTerm(Term):
         self.term_left._parent = self  # noqa: SLF001
         self.term_right._parent = self  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False):
+    def start(self, *, persistent: bool = False) -> None:
+        """Start the Term."""
         if not self.id:
             self._set_id("root")
 
@@ -1376,22 +1386,27 @@ class CompositeTerm(Term):
         self.term_right.start(persistent=persistent)
 
     def stop(self) -> None:
+        """Stop the Term."""
         # signal components to stop
         self.term_left.stop()
         self.term_right.stop()
 
-    def join(self):
+    def join(self) -> None:
+        """Wait until the Term terminates."""
         self.term_left.join()
         self.term_right.join()
 
 
 class ParallelTerm(CompositeTerm):
-    def __init__(self, *args, **kwargs) -> None:
+    """Parallel composition of Terms."""
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a ParallelTerm object."""
         super().__init__(*args, **kwargs)
         # maybe copy?
         self._outputs = merge_dicts(self.term_left._outputs, self.term_right._outputs)  # noqa: SLF001
 
-    def _add_input(self, name: str, ds: DataStream):
+    def _add_input(self, name: str, ds: DataStream) -> None:
         # broadcast inputs
         self.term_left._add_input(name, ds)  # noqa: SLF001
         self.term_right._add_input(name, ds)  # noqa: SLF001
@@ -1403,19 +1418,23 @@ class ParallelTerm(CompositeTerm):
         self.id = new_id
 
     def __str__(self) -> str:
+        """Return as string."""
         str_left = str(self.term_left)[1:-1] if isinstance(self.term_left, ParallelTerm) else str(self.term_left)
         str_right = str(self.term_right)[1:-1] if isinstance(self.term_right, ParallelTerm) else str(self.term_right)
         return "(" + str_left + " | " + str_right + ")"
 
 
 class SequentialTerm(CompositeTerm):
-    def __init__(self, *args, **kwargs) -> None:
+    """Sequential composition of Terms."""
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a SequentialTerm object."""
         super().__init__(*args, **kwargs)
         self.term_right._add_inputs(self.term_left._outputs)  # noqa: SLF001
         # maybe copy?
         self._outputs = self.term_right._outputs  # noqa: SLF001
 
-    def _add_input(self, name: str, ds: DataStream):
+    def _add_input(self, name: str, ds: DataStream) -> None:
         self.term_left._add_input(name, ds)  # noqa: SLF001
 
     def _set_id(self, new_id: str) -> None:
@@ -1425,6 +1444,7 @@ class SequentialTerm(CompositeTerm):
         self.id = new_id
 
     def __str__(self) -> str:
+        """Return as string."""
         str_left = str(self.term_left)[1:-1] if isinstance(self.term_left, SequentialTerm) else str(self.term_left)
         str_right = str(self.term_right)[1:-1] if isinstance(self.term_right, SequentialTerm) else str(self.term_right)
         return "(" + str_left + "; " + str_right + ")"
@@ -1439,14 +1459,17 @@ class Stop(Term):
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
 
-    def start(self, *, persistent: bool = False):  # noqa: ARG002
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start the Term."""
         if not self.id:
             self._set_id("root")
 
     def stop(self) -> None:
-        pass
+        """Stop the Term."""
+        return
 
-    def join(self):
+    def join(self) -> None:
+        """Wait until Term terminates."""
         return
 
 
@@ -1455,11 +1478,13 @@ class Flatten(FunctionTerm):
 
     level: int | None
 
-    def __init__(self, *args, level: int | None = 1, **kwargs) -> None:
+    def __init__(self, *args, level: int | None = 1, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Flatten object."""
         super().__init__(*args, **kwargs)
         self.level = level
 
     def f(self, items: dict[str, DataItem]) -> DataItem:
+        """Execute f on new data."""
         if len(items) > 1:
             msg = "Cannot flatten more than one stream at once. Please merge first."
             raise ValueError(msg)
@@ -1469,6 +1494,8 @@ class Flatten(FunctionTerm):
 
 
 class MergeToSingleStream(FunctionTerm):
+    """Merges multiple streams into a single stream."""
+
     def __init__(self, *args, combine: bool = False, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.combine = combine
