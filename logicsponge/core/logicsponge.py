@@ -44,17 +44,22 @@ State = dict[str, Any]
 
 
 class LatencyQueue:
+    """A queue of latencies, used to generate statistics of terms."""
+
     queue: deque
     tic_time: float | None
 
     def __init__(self, max_size: int = 100) -> None:
+        """Create a LatencyQueue object."""
         self.tic_time = None
         self.queue = deque(maxlen=max_size)
 
     def tic(self) -> None:
+        """Start a latency measurement."""
         self.tic_time = datetime.now(UTC).timestamp()
 
     def toc(self) -> None:
+        """Stop a latency measurement."""
         toc_time = datetime.now(UTC).timestamp()
         if self.tic_time is None:
             msg = "need to tic first"
@@ -64,7 +69,7 @@ class LatencyQueue:
 
     @property
     def avg(self) -> float:
-        """Average latency in [s]"""
+        """Average latency in [s]."""
         latencies = list(self.queue)
         if self.tic_time is not None:
             current_latency = datetime.now(UTC).timestamp() - self.tic_time
@@ -75,7 +80,7 @@ class LatencyQueue:
 
     @property
     def max(self) -> float:
-        """Max latency in [s]"""
+        """Max latency in [s]."""
         latencies = list(self.queue)
         if self.tic_time is not None:
             current_latency = datetime.now(UTC).timestamp() - self.tic_time
