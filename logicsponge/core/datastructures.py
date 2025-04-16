@@ -9,17 +9,22 @@ T = TypeVar("T")
 
 
 class SharedQueueNode(Generic[T]):
+    """Node in the SharedQueue."""
+
     value: T
     next: "SharedQueueNode | None"
     prev: "SharedQueueNode | None"
 
     def __init__(self, value: T) -> None:
+        """Create a SharedQueueNode object."""
         self.value = value
         self.next = None
         self.prev = None
 
 
 class SharedQueue(Generic[T]):
+    """SharedQueue."""
+
     _head: SharedQueueNode[T] | None
     _tail: SharedQueueNode[T] | None
 
@@ -30,6 +35,7 @@ class SharedQueue(Generic[T]):
     _cursors: dict[int, SharedQueueNode[T] | None]
 
     def __init__(self) -> None:
+        """Create a SharedQueue object."""
         self._head = None
         self._tail = None
 
@@ -40,6 +46,7 @@ class SharedQueue(Generic[T]):
         self._cursors = {}
 
     def __len__(self) -> int:
+        """Return the length."""
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             count = 0
             node = self._head
@@ -49,6 +56,7 @@ class SharedQueue(Generic[T]):
             return count
 
     def len_until_cursor(self, cid: int) -> int:
+        """Return the length until a cursor."""
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             cursor = self._cursors[cid]
             if cursor is None:
@@ -63,6 +71,7 @@ class SharedQueue(Generic[T]):
             return count
 
     def len_until_first_cursor(self) -> int:
+        """Return the length until the first cursor."""
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             count = 0
             node = self._head
@@ -72,6 +81,7 @@ class SharedQueue(Generic[T]):
             return count
 
     def __getitem__(self, index: int | slice) -> T | list[T]:
+        """Get an item."""
         node: SharedQueueNode[T] | None = None
         if isinstance(index, int):
             if index < 0:
@@ -102,6 +112,7 @@ class SharedQueue(Generic[T]):
         raise TypeError
 
     def to_list(self) -> list[T]:
+        """Return as list."""
         lst = []
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             node = self._head
