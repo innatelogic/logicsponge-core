@@ -740,7 +740,7 @@ class Term(ABC):
     _outputs: dict[str, DataStream]
     _parent: "Term | None"
 
-    def __init__(self, name: str | None = None, **kwargs) -> None:  # noqa: ARG002
+    def __init__(self, name: str | None = None, **kwargs) -> None:  # noqa: ANN003, ARG002
         """Create a Term."""
         # self.inputs: dict[str, DataStream] = {}
         # self.outputs: dict[str, DataStream] = {}
@@ -765,43 +765,50 @@ class Term(ABC):
         pass
 
     def __mul__(self, other: "Term") -> "SequentialTerm":
+        """Compose sequentially."""
         if isinstance(other, Term):
             return SequentialTerm(self, other)
         msg = "Only terms can be combined in sequence"
         raise TypeError(msg)
 
     def __or__(self, other: "Term") -> "ParallelTerm":
+        """Compose in parallel."""
         if isinstance(other, Term):
             return ParallelTerm(self, other)
         msg = "Only terms can be combined in parallel"
         raise TypeError(msg)
 
     @abstractmethod
-    def start(self, *, persistent: bool = False):
-        """Starts execution of the term"""
+    def start(self, *, persistent: bool = False) -> None:
+        """Start execution of the term."""
 
     @abstractmethod
-    def stop(self):
-        """Signals a Term to stop its execution."""
+    def stop(self) -> None:
+        """Signal a Term to stop its execution."""
 
     @abstractmethod
-    def join(self):
-        """Waits for a Term to stop its execution."""
+    def join(self) -> None:
+        """Wait for a Term to stop its execution."""
 
-    def cancel(self):
-        """Cancels the term"""
+    def cancel(self) -> None:
+        """Cancel the Term."""
+        return
 
     def __str__(self) -> str:
+        """Return a str representation."""
         return f"Term({self.name})"
 
 
 class SourceTerm(Term):
+    """Term that acts as a source."""
+
     _thread: threading.Thread | None
     _output: DataStream
     _stop_event: threading.Event
     state: State
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a SourceTerm object."""
         super().__init__(*args, **kwargs)
         self._output = DataStream(owner=self)
         self._outputs[self.name] = self._output
@@ -819,21 +826,21 @@ class SourceTerm(Term):
         # set DataStream ID
         self._output._set_id(f"{self.id}:output")  # noqa: SLF001
 
-    def run(self):
-        """Overwrite this function to produce the source's output"""
+    def run(self) -> None:
+        """Overwrite this function to produce the source's output."""
 
-    def enter(self):
-        """Overwrite this function to initialize the source term's thread"""
+    def enter(self) -> None:
+        """Overwrite this function to initialize the source term's thread."""
 
-    def exit(self):
-        """Overwrite this function to clean up the source term's thread"""
+    def exit(self) -> None:
+        """Overwrite this function to clean up the source term's thread."""
 
-    def start(self, *, persistent: bool = False):
-        """Start the source term's thread"""
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start the source term's thread."""
         if not self.id:
             self._set_id("root")
 
-        def execute(stop_event: threading.Event):  # noqa: ARG001
+        def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
             self.enter()
             try:
                 self.run()
@@ -847,15 +854,18 @@ class SourceTerm(Term):
             self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
             self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stop the Source."""
         self._stop_event.set()
-        logging.debug("%s stopped", self)
+        logger.debug("%s stopped", self)
 
-    def join(self):
+    def join(self) -> None:
+        """Wait for the source thread to terminate."""
         if self._thread is not None:
             self._thread.join()
 
     def output(self, data: DataItem) -> None:
+        """Output data."""
         data.set_time_to_now()
         self._output.append(data)
 
@@ -867,6 +877,7 @@ class SourceTerm(Term):
 
     @property
     def stats(self) -> dict:
+        """Return the source's statistics."""
         last_times = [di.time for di in self._output.to_list()]
         latency_avg = (last_times[-1] - last_times[0]) / len(last_times) if len(last_times) > 1 else float("nan")
         latency_max = (
@@ -892,7 +903,7 @@ class ConstantSourceTerm(SourceTerm):
 
     _items: list[DataItem]
 
-    def __init__(self, items: list[DataItem], *args, **kwargs):
+    def __init__(self, items: list[DataItem], *args, **kwargs):  # noqa: ANN002, ANN003
         """items: list[DataItem]
         List of data items to output.
         """
