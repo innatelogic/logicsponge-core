@@ -1288,7 +1288,10 @@ class FunctionTerm(Term):
 
     @property
     def stats(self) -> dict:
-        """Return statistics."""
+        """Return statistics.
+
+        TODO: fix read/write statistics.
+        """
         term_type = self.__class__.__name__
         return {
             "name": self.name,
@@ -1299,7 +1302,7 @@ class FunctionTerm(Term):
                 "latency_avg": self._latency_queue.avg,
                 "latency_max": self._latency_queue.max,
             },
-            "inputs": {dsv.ds.id: {"read": dsv.pos, "write": len(dsv.ds)} for dsv in self._inputs.values()},
+            "inputs": {dsv.get_id(): {"read": 0, "write": 0} for dsv in self._inputs.values()},  # TODO: fix
         }
 
 
@@ -1426,7 +1429,10 @@ class DynamicSpawnTerm(Term):
 
     @property
     def stats(self) -> dict:
-        """Return the statistics."""
+        """Return the statistics.
+
+        TODO: fix read/write statistics.
+        """
         term_type = self.__class__.__name__
         return {
             "name": self.name,
@@ -1437,7 +1443,7 @@ class DynamicSpawnTerm(Term):
                 "latency_avg": self._latency_queue.avg,
                 "latency_max": self._latency_queue.max,
             },
-            "inputs": {dsv.ds.id: {"read": dsv.pos, "write": len(dsv.ds)} for dsv in self._inputs.values()},
+            "inputs": {dsv.get_id(): {"read": 0, "write": 0} for dsv in self._inputs.values()},  # TODO: fix
         }
 
 
