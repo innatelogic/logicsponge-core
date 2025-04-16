@@ -426,16 +426,17 @@ clientside_callback(
 
 # Callback
 @app.callback(Output("stats-data", "data"), [Input("interval-stats", "n_intervals")])
-def update_stats(n):  # noqa: ARG001
+def update_stats(n: int) -> dict:  # noqa: ARG001
+    """Call to update statistics."""
     if statistics_graph is not None:
         return statistics_graph.stats_dict
     return {}
 
 
 class Plot(ls.FunctionTerm):
-    """plot data items
+    """Plot data items as they arrive.
 
-    typical uses are:
+    Typical uses are:
     - Plot(x='a', y=['b', 'c'])
     - Plot(x='a', y='b')
     - Plot(y='b') : plot over round number
@@ -450,7 +451,7 @@ class Plot(ls.FunctionTerm):
     log_y: bool
     range_y: list[float] | None
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *argv,
         x: str = "round",
@@ -461,6 +462,7 @@ class Plot(ls.FunctionTerm):
         range_y: list[float] | None = None,
         **argk,
     ) -> None:
+        """Create a new Plot object."""
         super().__init__(*argv, **argk)
         self.x_name = x
         if isinstance(y, str):
@@ -486,6 +488,7 @@ class Plot(ls.FunctionTerm):
             self.graph.add_line(label=y_name, x=[], y=[], style=self.style)
 
     def add_data(self, item: ls.DataItem) -> None:
+        """Happening on adding new data."""
         if self.graph is None:
             # first plot
             self._axis_setup(item)
@@ -518,18 +521,20 @@ class Plot(ls.FunctionTerm):
             raise KeyError(msg) from err
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
+        """Add the new data."""
         self.add_data(item)
         return item
 
 
 class BinaryPlot(Plot):
-    """plots monitored binary signal"""
+    """Plots a monitored binary signal."""
 
     x_name: str
     y_names: list[str] | None
     graph: Graph | None
 
     def __init__(self, *argv, **argk) -> None:
+        """Create a BinaryPlot object."""
         super().__init__(*argv, **argk)
 
     def _axis_setup(self, item: ls.DataItem) -> None:
@@ -550,10 +555,13 @@ class BinaryPlot(Plot):
 
 
 class DeepPlot(ls.FunctionTerm):
+    """A DeepPlot is used to plot a complete graph."""
+
     then_fun: Callable[[Self, ls.DataItem], None] | None
     graph: Graph
 
     def __init__(self, *argv, **argk) -> None:
+        """Create a DeepPlot object."""
         super().__init__(*argv, **argk)
         self.graph = Graph(self.name)
         register_graph(self.graph)
@@ -573,6 +581,7 @@ class DeepPlot(ls.FunctionTerm):
                     self._call_plot_dicts(d[k])
 
     def plot_line(self, params: PlotParams) -> None:
+        """Plot a line."""
         self._axis_setup(params)
 
         # draw
@@ -593,7 +602,7 @@ class DeepPlot(ls.FunctionTerm):
         self.graph.add_line(x=x, y=y, label=label)
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
-        # do the plotting
+        """Run the plotting."""
         self.graph.clear()
         self._call_plot_dicts(item)
 
@@ -605,26 +614,24 @@ class DeepPlot(ls.FunctionTerm):
         return item
 
     def then(self, fun: Callable[[Self, ls.DataItem], None]) -> Self:
-        """run a function after the plotting"""
+        """Run a function after plotting."""
         self.then_fun = fun
         return self
 
 
 def is_finite(num: float | np.number) -> bool:
-    # try:
+    """Return if a number is finite."""
     return not (math.isnan(num) or math.isinf(num))
-    # except Exception as e:
-    #     print('error', num)
 
 
-# show statistics
 def show_stats(circuit: ls.Term) -> None:
+    """Show statistics in the dashboard."""
     global statistics_graph  # noqa: PLW0603
     statistics_graph = StatisticsGraph(circuit)
 
 
-# Run the dashboard app
 def run(debug: bool = False) -> None:  # noqa: FBT001, FBT002
+    """Run the dashboard app."""
     # NOTE: if debug=True then modules may load twice, and
     # this will be bad for running circuits etc.
     if debug:
