@@ -1496,11 +1496,13 @@ class Flatten(FunctionTerm):
 class MergeToSingleStream(FunctionTerm):
     """Merges multiple streams into a single stream."""
 
-    def __init__(self, *args, combine: bool = False, **kwargs) -> None:
+    def __init__(self, *args, combine: bool = False, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a MergeToSingleStream object."""
         super().__init__(*args, **kwargs)
         self.combine = combine
 
     def f(self, items: dict[str, DataItem]) -> DataItem:
+        """Execute the Term's f."""
         ret: dict | dict[str, DataItem]
         if self.combine:
             # combine all into a single dict
@@ -1515,28 +1517,31 @@ class MergeToSingleStream(FunctionTerm):
 
 
 class Linearizer(FunctionTerm):
+    """Linearize into a single stream."""
+
     linearized_input: DataStreamView  # contains linearized inputs together with global time stamp
 
-    def __init__(self, *args, info: bool = True, **kwargs) -> None:
+    def __init__(self, *args, info: bool = True, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Linearizer object."""
         super().__init__(*args, **kwargs)
         ds = DataStream(owner=self)
         self.linearized_input = DataStreamView(ds=ds, owner=self)
         self.info = info
 
-    def _callback_new_data(self, name, dataitem):
-        """Callback function to be executed when new input data item arrives (see _add_input)."""
+    def _callback_new_data(self, name: str, dataitem: DataItem) -> None:
+        """Call to be executed when new input data item arrives (see _add_input)."""
         dict_row = DataItem({"name": name, "data": dataitem}) if self.info else dataitem
 
         self.linearized_input.ds.append(dict_row)
 
-    def _add_input(self, name: str, ds: DataStream):
+    def _add_input(self, name: str, ds: DataStream) -> None:
         def new_data_callback(dataitem):
             self._callback_new_data(name, dataitem)
 
         ds.new_data_callbacks.append(new_data_callback)
 
-    def run(self, dss: dict[str, DataStreamView]):
-        _ = dss  # otherwise unused
+    def run(self, dss: dict[str, DataStreamView]) -> None:  # noqa: ARG002
+        """Execute the run."""
         while True:
             self.linearized_input.next()
             self.output(self.linearized_input[-1])
@@ -1547,11 +1552,16 @@ class KeyValueFilter(FunctionTerm):
 
     key_value_filter: Callable[[str, Any], bool] | None
 
-    def __init__(self, *args, key_value_filter: Callable[[str, Any], bool] | None = None, **kwargs) -> None:
+    def __init__(self, *args, key_value_filter: Callable[[str, Any], bool] | None = None, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create a new KeyValueFilter.
 
-        key_value_filter: Callable[[str, Any], bool], optional
-        Filter to be applied to each key-value pair in data item.
+        Args:
+            key_value_filter (Callable[[str, Any], bool], optional): Filter to be applied to
+            each key-value pair in data item.
+
+            args: Additional args.
+            kwargs: Additional kwargs.
+
         """
         if key_value_filter is None and len(args) > 0 and has_callable_signature(args[0], (str, Any), bool):
             key_value_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
@@ -1562,6 +1572,7 @@ class KeyValueFilter(FunctionTerm):
         self.key_value_filter = key_value_filter
 
     def f(self, item: DataItem) -> DataItem:
+        """Run the f."""
         if self.key_value_filter is not None:
             filtered_attributes = {k: v for k, v in item.items() if self.key_value_filter(k, v)}
         else:
@@ -1574,7 +1585,7 @@ class DataItemFilter(FunctionTerm):
 
     data_item_filter: Callable[[DataItem], bool] | None
 
-    def __init__(self, *args, data_item_filter: Callable[[DataItem], bool] | None = None, **kwargs) -> None:
+    def __init__(self, *args, data_item_filter: Callable[[DataItem], bool] | None = None, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create a new DataItemFilter.
 
         key_value_filter: Callable[[DataItem], bool]
@@ -1601,7 +1612,11 @@ class KeyFilter(KeyValueFilter):
     not_keys: None | str | list[str]
 
     def __init__(
-        self, *args, keys: None | str | list[str] = None, not_keys: None | str | list[str] = None, **kwargs
+        self,
+        *args,
+        keys: None | str | list[str] = None,
+        not_keys: None | str | list[str] = None,
+        **kwargs,  # noqa: ANN002, ANN003
     ) -> None:
         """Create a new KeyFilter.
 
@@ -1647,7 +1662,8 @@ class Print(FunctionTerm):
     not_keys: None | str | list[str]
     print_fun: Callable
 
-    def __init__(self, *args, keys: None | str | list[str] = None, print_fun: Callable = print, **kwargs):
+    def __init__(self, *args, keys: None | str | list[str] = None, print_fun: Callable = print, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Print object."""
         self.keys = None
         self.not_keys = None
         not_keys = kwargs.pop("not_keys", None)
@@ -1669,6 +1685,7 @@ class Print(FunctionTerm):
             self.not_keys = [not_keys] if isinstance(not_keys, str) else not_keys
 
     def f(self, item: DataItem) -> DataItem:
+        """Execute the Term's f."""
         if self.keys:
             filtered_item = {k: item[k] for k in self.keys if k in item}
         elif self.not_keys:
@@ -1686,36 +1703,45 @@ class Print(FunctionTerm):
 class PPrint(Print):
     """Like Print, with using pprint.pprint."""
 
-    def __init__(self, *args, keys: None | str | list[str] = None, print_fun: Callable = pprint.pprint, **kwargs):
+    def __init__(
+        self,
+        *args,
+        keys: None | str | list[str] = None,
+        print_fun: Callable = pprint.pprint,
+        **kwargs,  # noqa: ANN002, ANN003
+    ) -> None:
+        """Create a PPrint object."""
         super().__init__(*args, keys=keys, print_fun=lambda s: print_fun(s, **kwargs), **kwargs)
 
 
 class PrintKeys(FunctionTerm):
-    """Prints the keys in a data item.
-    Outputs the original item.
-    """
+    """Prints the keys in a data item. Outputs the original item."""
 
     print_fun: Callable
 
-    def __init__(self, *args, print_fun: Callable = print, **kwargs):
+    def __init__(self, *args, print_fun: Callable = print, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a PrintKeys object."""
         self.print_fun = print_fun
         super().__init__(*args, **kwargs)
 
     def f(self, item: DataItem) -> DataItem:
+        """Run the Term's f."""
         self.print_fun(list(item.keys()))
         return item  # return original item
 
 
 class Dump(FunctionTerm):
-    """Prints the whole DataStream at every new item"""
+    """Print the whole DataStream at every new item."""
 
     print_fun: Callable
 
-    def __init__(self, *args, print_fun: Callable = print, **kwargs):
+    def __init__(self, *args, print_fun: Callable = print, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Dump object."""
         self.print_fun = print_fun
         super().__init__(*args, **kwargs)
 
     def f(self, di: DataItem):
+        """Run the Term's f."""
         self.print_fun(di)
 
 
@@ -1724,7 +1750,8 @@ class Rename(FunctionTerm):
 
     fun: Callable[[str], str]
 
-    def __init__(self, *args, fun: Callable[[str], str] | dict[str, str] = lambda x: x, **kwargs):
+    def __init__(self, *args, fun: Callable[[str], str] | dict[str, str] = lambda x: x, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a Rename object."""
         super().__init__(*args, **kwargs)
         if isinstance(fun, dict):
             # rename via dict
@@ -1734,16 +1761,19 @@ class Rename(FunctionTerm):
             self.fun = fun
 
     def f(self, item: DataItem) -> DataItem:
+        """Run the Term's f."""
         return DataItem({self.fun(k): v for k, v in item.items()})
 
 
 class Id(FunctionTerm):
-    """Identity"""
+    """Identity. Id only forwards the 1st stream."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an Id object."""
         super().__init__(*args, **kwargs)
 
     def f(self, item: DataItem) -> DataItem:
+        """Forward data."""
         return item
 
 
@@ -1754,10 +1784,12 @@ class EosFilter(Id):
     This is almost always undesired behavior; use with caution.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an EosFilter object."""
         super().__init__(*args, **kwargs)
 
-    def eos(self):
+    def eos(self) -> None:
+        """Run in case of eos in stream."""
         self.stop()
 
 
@@ -1767,7 +1799,7 @@ class AddIndex(FunctionTerm):
     key: str
     index: int
 
-    def __init__(self, *args, key: str, index: int = 0, **kwargs):
+    def __init__(self, *args, key: str, index: int = 0, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.key = key
         self.index = index
