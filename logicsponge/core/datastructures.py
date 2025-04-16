@@ -56,7 +56,6 @@ class SharedQueue(Generic[T]):
             return count
 
     def len_until_cursor(self, cid: int) -> int:
-        """Return the length until a cursor."""
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             cursor = self._cursors[cid]
             if cursor is None:
@@ -81,7 +80,6 @@ class SharedQueue(Generic[T]):
             return count
 
     def __getitem__(self, index: int | slice) -> T | list[T]:
-        """Get an item."""
         node: SharedQueueNode[T] | None = None
         if isinstance(index, int):
             if index < 0:
@@ -122,7 +120,6 @@ class SharedQueue(Generic[T]):
         return lst
 
     def to_list_until_cursor(self, cid: int) -> list[T]:
-        """Return as list until a cursor."""
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             cursor = self._cursors[cid]
             if cursor is None:
@@ -150,7 +147,6 @@ class SharedQueue(Generic[T]):
             self._cursors.pop(cid, None)
 
     def create_view(self) -> "SharedQueueView[T]":
-        """Create a view."""
         return SharedQueueView(queue=self, cid=self.register_consumer())
 
     def append(self, value: T) -> None:
@@ -188,7 +184,6 @@ class SharedQueue(Generic[T]):
                 node.prev = None
 
     def peek(self, cid: int) -> bool:
-        """Peek on a cursor."""
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock
             cursor = self._cursors[cid]
             if cursor is None:
@@ -196,7 +191,6 @@ class SharedQueue(Generic[T]):
             return cursor.next is not None
 
     def next(self, cid: int) -> None:
-        """Next on a cursor."""
         with self._new_data:
             with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
                 cursor = self._cursors[cid]
@@ -231,7 +225,6 @@ class SharedQueue(Generic[T]):
                     self._cursors[cid] = cursor.next
 
     def get_relative(self, cid: int, index: int) -> T:
-        """Return the content of a node relative to a cursor."""
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             cursor = self._cursors[cid]
             if cursor is None:
@@ -271,7 +264,6 @@ class SharedQueueView(Generic[T]):
         self._cid = cid
 
     def __getitem__(self, index: int | slice) -> T | list[T]:
-        """Get an item."""
         # SAFETY: From safety of SharedQueue.__getitem__.
         if isinstance(index, int):
             return self._queue.get_relative(cid=self._cid, index=index)
@@ -280,20 +272,16 @@ class SharedQueueView(Generic[T]):
         raise TypeError
 
     def peek(self) -> bool:
-        """Peek on view."""
         return self._queue.peek(cid=self._cid)
 
     def next(self) -> None:
-        """Next on the view."""
         # SAFETY: From safety of SharedQueue.next.
         self._queue.next(cid=self._cid)
 
     def __len__(self) -> int:
-        """Return the length of the view."""
         # SAFETY: From safety of SharedQueue.len_until_cursor.
         return self._queue.len_until_cursor(self._cid)
 
     def to_list(self) -> list[T]:
-        """Return as list."""
         # SAFETY: From safety of SharedQueue.to_list_until_cursor.
         return self._queue.to_list_until_cursor(self._cid)
