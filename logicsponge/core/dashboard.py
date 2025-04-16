@@ -65,7 +65,10 @@ class Graph:
         """Create a Graph object.
 
         Args:
+            name (str): The name.
             stacked (bool): If plotted lines are stacked as subgraphs instead of being plotted as overlays.
+            log_y (bool): If y-axis is log.
+            range_y (list[float], optional): The range of the y-axis.
 
         """
         with lock:
@@ -477,17 +480,17 @@ class Plot(ls.FunctionTerm):
 
     def __init__(  # noqa: PLR0913
         self,
-        *argv,
+        *args,  # noqa: ANN002
         x: str = "round",
         y: str | list[str] | None = None,
         stacked: bool = False,
         style: dict[str, Any] | None = None,
         log_y: bool = False,
         range_y: list[float] | None = None,
-        **argk,
+        **kwargs,  # noqa: ANN003
     ) -> None:
         """Create a new Plot object."""
-        super().__init__(*argv, **argk)
+        super().__init__(*args, **kwargs)
         self.x_name = x
         if isinstance(y, str):
             self.y_names = [y]
@@ -557,9 +560,9 @@ class BinaryPlot(Plot):
     y_names: list[str] | None
     graph: Graph | None
 
-    def __init__(self, *argv, **argk) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create a BinaryPlot object."""
-        super().__init__(*argv, **argk)
+        super().__init__(*args, **kwargs)
 
     def _axis_setup(self, item: ls.DataItem) -> None:
         # check if need to discover the y_names
@@ -574,6 +577,7 @@ class BinaryPlot(Plot):
             self.graph.add_line(label=y_name, x=[], y=[])
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
+        """Execute on new data."""
         self.add_data(item)
         return item
 
@@ -584,9 +588,9 @@ class DeepPlot(ls.FunctionTerm):
     then_fun: Callable[[Self, ls.DataItem], None] | None
     graph: Graph
 
-    def __init__(self, *argv, **argk) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create a DeepPlot object."""
-        super().__init__(*argv, **argk)
+        super().__init__(*args, **kwargs)
         self.graph = Graph(self.name)
         register_graph(self.graph)
 
