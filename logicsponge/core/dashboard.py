@@ -1,4 +1,4 @@
-import logging
+import logging  # noqa: D100
 import math
 import threading
 import uuid
@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 class PlotParams(TypedDict):
+    """Parameters of a plot."""
+
     x: list[float]
     y: list[float]
     args: list
@@ -28,6 +30,8 @@ class PlotParams(TypedDict):
 
 
 class Line(TypedDict):
+    """Parameters of a line."""
+
     x: list[float]
     y: list[float]
     label: str
@@ -35,11 +39,14 @@ class Line(TypedDict):
 
 
 def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    """Convert hex to rgb."""
     hex_color = hex_color.lstrip("#")
-    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore
+    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore  # noqa: PGH003
 
 
 class Graph:
+    """A graph in the dashboard."""
+
     lines: list[Line]
     name: str
     uuid: str
@@ -55,8 +62,11 @@ class Graph:
         log_y: bool = False,  # noqa: FBT001, FBT002
         range_y: list[float] | None = None,
     ) -> None:
-        """
-        stacked: if ploted lines are stacked as subgraphs instead of being plotted as overlays
+        """Create a Graph object.
+
+        Args:
+            stacked (bool): If plotted lines are stacked as subgraphs instead of being plotted as overlays.
+
         """
         with lock:
             self.uuid = str(uuid.uuid4())
@@ -68,18 +78,21 @@ class Graph:
             self.range_y = range_y
 
     def clear(self) -> None:
+        """Clear the plot."""
         with lock:
             self.lines = []
 
     def add_line(
         self, x: list[float], y: list[float], label: str | None = None, style: dict[str, Any] | None = None
     ) -> None:
+        """Add a line to the plot."""
         with lock:
             new_label = label if label is not None else str(len(self.lines))
             new_line: Line = {"x": x, "y": y, "label": new_label, "style": {} if style is None else style}
             self.lines.append(new_line)
 
     def get_line(self, label: str) -> Line | None:
+        """Get a line of the plot."""
         with lock:
             for line in self.lines:
                 if line["label"] == label:
@@ -87,6 +100,7 @@ class Graph:
         return None
 
     def append_to_line(self, label: str, x: float | None, y: float) -> None:
+        """Append x,y to a line."""
         line = self.get_line(label)
         if line is None:
             msg = "line does not exist"
@@ -100,6 +114,7 @@ class Graph:
             line["y"].append(y)
 
     def to_dcc_graph(self) -> dcc.Graph:
+        """Get a navigable graph as a dcc.Graph object."""
         standard_colors = plotly.colors.qualitative.Plotly
 
         if not self.stacked:
@@ -118,7 +133,7 @@ class Graph:
                 rgb = hex_to_rgb(color)
                 style_mode = line["style"].get("mode", "lines")
                 if len(line["y"]) > 0 and isinstance(line["y"][0], list):
-                    # muliple y values per x -> plot mean with errors
+                    # multiple y values per x -> plot mean with errors
                     x = line["x"]
                     y = [np.mean(inner_list) for inner_list in line["y"]]
                     y_lower = [np.min(inner_list) for inner_list in line["y"]]
@@ -201,13 +216,17 @@ class Graph:
 
 
 class StatisticsGraph:
+    """Graph with performance statistics."""
+
     circuit: ls.Term
 
     def __init__(self, circuit: ls.Term) -> None:
+        """Create a StatisticsGraph object."""
         self.circuit = circuit
 
     @staticmethod
     def dfs(term: ls.Term, result: list[ls.Term]) -> None:
+        """Run dfs on a Term and add to result list."""
         result.append(term)
         if isinstance(term, ls.SequentialTerm | ls.ParallelTerm):
             StatisticsGraph.dfs(term.term_left, result=result)
@@ -215,13 +234,15 @@ class StatisticsGraph:
 
     @property
     def term_list(self) -> list[ls.Term]:
+        """Return a list of Terms."""
         result: list[ls.Term] = []
         StatisticsGraph.dfs(self.circuit, result=result)
         return result
 
     @property
     def stats_dict(self) -> dict:
-        logging.debug("stats_dict")
+        """Return a dict with statistics."""
+        logger.debug("stats_dict")
 
         def map_fun(term: ls.Term) -> dict:
             if isinstance(term, ls.SourceTerm | ls.FunctionTerm):
@@ -233,7 +254,7 @@ class StatisticsGraph:
         merged_dict = {}
         for d in mapped:
             merged_dict.update(d)
-        logging.debug("stats_dict done")
+        logger.debug("stats_dict done")
         return merged_dict
 
 
@@ -247,7 +268,7 @@ external_scripts: list[str | dict[str, Any]] | None = [
 app = dash.Dash(
     __name__,
     title="logicsponge",
-    update_title=None,  # type: ignore
+    update_title=None,  # type: ignore  # noqa: PGH003
     suppress_callback_exceptions=True,
     external_scripts=external_scripts,
     external_stylesheets=[dbc.themes.BOOTSTRAP],
@@ -334,12 +355,14 @@ page_latencies = html.Div(
 
 
 def register_graph(graph: Graph) -> None:
+    """Register a new graph."""
     with lock:
         graphs.append(graph)
 
 
 @app.callback(Output("page-content", "children"), [Input("url", "pathname")])
-def render_page_content(pathname):
+def render_page_content(pathname: str) -> html.Div:
+    """Call to render the page content."""
     if pathname == "/":
         return page_graphs
     if pathname == "/sponge":
@@ -357,9 +380,9 @@ def render_page_content(pathname):
     )
 
 
-# Callback to update the layout with all graphs
 @app.callback(Output("graphs-container", "children"), [Input("interval-graphs", "n_intervals")])
-def update_graphs(n):  # noqa: ARG001
+def update_graphs(n: int) -> list[html.Div]:  # noqa: ARG001
+    """Call to update the layout with all graphs."""
     logger.debug("update_graphs")
     with lock:
         graphs_html = []
@@ -374,7 +397,8 @@ def update_graphs(n):  # noqa: ARG001
 
 
 @app.callback(Output("latencies-container", "children"), [Input("interval-latencies", "n_intervals")])
-def update_latencies(n):  # noqa: ARG001
+def update_latencies(n: int) -> html.Div:  # noqa: ARG001
+    """Call to update the latencies."""
     logger.debug("update_latencies")
     if statistics_graph is None:
         return html.Div([])
