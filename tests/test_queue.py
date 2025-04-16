@@ -1,11 +1,12 @@
-# type: ignore
+"""Test queues."""
 
 import pytest
 
 from logicsponge.core.datastructures import SharedQueue, SharedQueueView
 
 
-def test_empty():
+def test_empty() -> None:
+    """Test empty queue."""
     queue: SharedQueue[int] = SharedQueue()
 
     assert len(queue) == 0
@@ -14,7 +15,8 @@ def test_empty():
         queue[0]
 
 
-def test_append_one():
+def test_append_one() -> None:
+    """Test adding."""
     queue: SharedQueue[int] = SharedQueue()
     queue.append(42)
 
@@ -30,7 +32,8 @@ def test_append_one():
         queue[-2]
 
 
-def test_create_view():
+def test_create_view() -> None:
+    """Test creating a view."""
     queue: SharedQueue[int] = SharedQueue()
     queue.append(42)
 
@@ -42,7 +45,8 @@ def test_create_view():
         view[0]
 
 
-def test_view_next():
+def test_view_next() -> None:
+    """Test views."""
     queue: SharedQueue[int] = SharedQueue()
     queue.append(42)
     queue.append(43)
@@ -60,7 +64,8 @@ def test_view_next():
         view[-2]
 
 
-def test_drop_one():
+def test_drop_one() -> None:
+    """Test dropping one."""
     queue: SharedQueue[int] = SharedQueue()
     queue.append(42)
     queue.append(43)
@@ -70,7 +75,8 @@ def test_drop_one():
     assert queue.to_list() == [43]
 
 
-def test_drop_all():
+def test_drop_all() -> None:
+    """Test dropping two."""
     queue: SharedQueue[int] = SharedQueue()
     queue.append(42)
     queue.append(43)
@@ -80,7 +86,8 @@ def test_drop_all():
     assert queue.to_list() == []
 
 
-def test_drop_none():
+def test_drop_none() -> None:
+    """Test dropping none."""
     queue: SharedQueue[int] = SharedQueue()
     queue.append(42)
     queue.append(43)

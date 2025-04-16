@@ -1,3 +1,5 @@
+"""Testing data items."""
+
 import logicsponge.core as ls
 
 

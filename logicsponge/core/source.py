@@ -49,7 +49,7 @@ class FileWatchSource(ls.SourceTerm):
     observer: BaseObserver
     handler: FileWatchHandler
 
-    def __init__(self, file_path: str, *args, encoding: str = "utf-8", **kwargs):
+    def __init__(self, file_path: str, *args, encoding: str = "utf-8", **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         # setup the file watcher
@@ -60,15 +60,15 @@ class FileWatchSource(ls.SourceTerm):
         path = os.path.dirname(file_path)
         self.observer.schedule(self.handler, path=path, recursive=False)
 
-    def enter(self):
+    def enter(self) -> None:
         self.handler.read_file()
         self.observer.start()
 
-    def exit(self):
+    def exit(self) -> None:
         self.observer.stop()
         self.observer.join()
 
-    def run(self):
+    def run(self) -> None:
         while True:
             time.sleep(60)  # TODO: better way?
 
@@ -78,13 +78,13 @@ class CSVStreamer(ls.SourceTerm):
     poll_delay: float
     position: int
 
-    def __init__(self, *args, file_path: str, poll_delay: float = 1, **kwargs):
+    def __init__(self, *args, file_path: str, poll_delay: float = 1, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.file_path = file_path
         self.poll_delay = poll_delay
         self.position = 0
 
-    def run(self):
+    def run(self) -> None:
         # TODO: unclear about updates within line. Not explicitely managed.
         while True:
             try:
@@ -148,7 +148,7 @@ class GoogleDriveSource(ls.SourceTerm):
 class StringDiff(ls.FunctionTerm):
     old_string: str  # state
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.old_string = ""
 
@@ -172,7 +172,7 @@ class LineParser(ls.FunctionTerm):
     has_header: bool
     header: list[str] | None  # state
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.comment = kwargs.get("comment", "#")
         self.delimiter = kwargs.get("delimiter", "\t")

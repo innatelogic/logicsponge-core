@@ -1204,7 +1204,7 @@ class FunctionTerm(Term):
         input_stream.next()
 
     def output(self, data: DataItem | None) -> None:
-        """Appends data to the output stream if data is not None"""
+        """Appends data to the output stream if data is not None."""
         if data is not None:
             self._output.append(data)
 
@@ -1535,7 +1535,7 @@ class Linearizer(FunctionTerm):
         self.linearized_input.ds.append(dict_row)
 
     def _add_input(self, name: str, ds: DataStream) -> None:
-        def new_data_callback(dataitem):
+        def new_data_callback(dataitem) -> None:
             self._callback_new_data(name, dataitem)
 
         ds.new_data_callbacks.append(new_data_callback)
@@ -1616,7 +1616,7 @@ class KeyFilter(KeyValueFilter):
         *args,
         keys: None | str | list[str] = None,
         not_keys: None | str | list[str] = None,
-        **kwargs,  # noqa: ANN002, ANN003
+        **kwargs,  # noqa: ANN003
     ) -> None:
         """Create a new KeyFilter.
 
@@ -1708,7 +1708,7 @@ class PPrint(Print):
         *args,
         keys: None | str | list[str] = None,
         print_fun: Callable = pprint.pprint,
-        **kwargs,  # noqa: ANN002, ANN003
+        **kwargs,  # noqa: ANN003
     ) -> None:
         """Create a PPrint object."""
         super().__init__(*args, keys=keys, print_fun=lambda s: print_fun(s, **kwargs), **kwargs)
@@ -1740,7 +1740,7 @@ class Dump(FunctionTerm):
         self.print_fun = print_fun
         super().__init__(*args, **kwargs)
 
-    def f(self, di: DataItem):
+    def f(self, di: DataItem) -> None:
         """Run the Term's f."""
         self.print_fun(di)
 
@@ -1794,17 +1794,19 @@ class EosFilter(Id):
 
 
 class AddIndex(FunctionTerm):
-    """Add index key."""
+    """Add an index key."""
 
     key: str
     index: int
 
-    def __init__(self, *args, key: str, index: int = 0, **kwargs) -> None:
+    def __init__(self, *args, key: str, index: int = 0, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an AddIndex object."""
         super().__init__(*args, **kwargs)
         self.key = key
         self.index = index
 
     def f(self, item: DataItem) -> DataItem:
+        """Execute the Term's f."""
         di = DataItem({**item, self.key: self.index})
         self.index += 1
         return di
@@ -1815,19 +1817,20 @@ class Delay(FunctionTerm):
 
     delay_s: float
 
-    def __init__(self, *args, delay_s: float, **kwars) -> None:
+    def __init__(self, *args, delay_s: float, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create an instance.
 
-        Parameters
-        ----------
-        delay_s : float
-            The delay in seconds.
+        Args:
+            delay_s (float): The delay in seconds.
+            args: Additional args.
+            kwargs: Additional kwargs.
 
         """
-        super().__init__(*args, **kwars)
+        super().__init__(*args, **kwargs)
         self.delay_s = delay_s
 
     def f(self, item: DataItem) -> DataItem:
+        """Run the Term's f."""
         time.sleep(self.delay_s)
         return item
 
@@ -1839,20 +1842,24 @@ VT = TypeVar("VT")
 
 
 def merge_dicts(outputs1: dict[KT, VT], outputs2: dict[KT, VT]) -> dict[KT, VT]:
+    """Merge two dicts and return the merged one."""
     intersecting_keys = outputs1.keys() & outputs2.keys()
     for key in intersecting_keys:
         if outputs1[key] != outputs2[key]:
-            msg = f"Incompatible outputs detected for output stream '{key}'. More than one term writes to this output stream."
+            msg = f"""Incompatible outputs detected for output stream '{key}'. \
+            More than one term writes to this output stream."""
             raise ValueError(msg)
     return outputs1 | outputs2
 
 
 def was_overwritten(f: Callable) -> bool:
+    """Return if the argument was overwritten."""
     orig_code = FunctionTerm.f.__code__.co_code
     return f.__code__.co_code == orig_code
 
 
 def get_annotations(obj: object, method_name: str) -> list | None:
+    """Return the annotations of a method in an object."""
     if hasattr(obj, method_name):
         method = getattr(obj, method_name)
         if callable(method) and not was_overwritten(method):
@@ -1865,6 +1872,8 @@ def get_annotations(obj: object, method_name: str) -> list | None:
 
 
 def parallel(li: list[Term]) -> Term:
+    """Create a ParallelTerm for the arguments."""
+
     def red_parallel(x: Term, y: Term) -> ParallelTerm:
         return x | y
 
@@ -1872,6 +1881,7 @@ def parallel(li: list[Term]) -> Term:
 
 
 def flatten_dict(d: dict[str, Any] | DataItem, parent_key: str | None = None, sep: str = ".") -> dict[str, Any]:
+    """Return a flattened dict."""
     items: list[tuple[str, Any]] = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key is not None else k
@@ -1883,7 +1893,8 @@ def flatten_dict(d: dict[str, Any] | DataItem, parent_key: str | None = None, se
     return dict(items)
 
 
-def has_callable_signature(func: Any, args: tuple, ret) -> bool:
+def has_callable_signature(func: Any, args: tuple, ret: Any) -> bool:  # noqa: ANN401
+    """Return if a func is callable."""
     if not callable(func):
         return False
 

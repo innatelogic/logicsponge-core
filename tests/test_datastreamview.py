@@ -1,11 +1,12 @@
-# type: ignore
+"""Testing datastream views."""
 
 import pytest
 
 import logicsponge.core as ls
 
 
-def test_datastreamview_no_elements():
+def test_datastreamview_no_elements() -> None:
+    """View with no element."""
     term = ls.Id()
     ds = ls.DataStream(owner=term)
     dsv = ls.DataStreamView(ds=ds, owner=term)
@@ -17,7 +18,8 @@ def test_datastreamview_no_elements():
         dsv[-1]
 
 
-def test_datastreamview_one_element():
+def test_datastreamview_one_element() -> None:
+    """View with one element."""
     term = ls.Id()
     ds = ls.DataStream(owner=term)
     dsv = ls.DataStreamView(ds=ds, owner=term)
@@ -36,7 +38,8 @@ def test_datastreamview_one_element():
         ds[-2]
 
 
-def test_datastreamview_two_elements():
+def test_datastreamview_two_elements() -> None:
+    """View with 2 elements."""
     term = ls.Id()
     ds = ls.DataStream(owner=term)
     dsv = ls.DataStreamView(ds=ds, owner=term)

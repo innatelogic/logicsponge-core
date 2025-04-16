@@ -1,11 +1,12 @@
-# type: ignore
+"""Testing dropping data items."""
 
 import pytest
 
 import logicsponge.core as ls
 
 
-def test_datastream_forget_all():
+def test_datastream_forget_all() -> None:
+    """Test forgetting."""
     ds = ls.DataStream(owner=ls.Id())
 
     di = ls.DataItem({"hello": "world"})
@@ -24,7 +25,8 @@ def test_datastream_forget_all():
         ds[-1]
 
 
-def test_datastreamview_forget_all():
+def test_datastreamview_forget_all() -> None:
+    """Test forgetting."""
     term = ls.Id()
     ds = ls.DataStream(owner=term)
     dsv = ls.DataStreamView(ds=ds, owner=term)
@@ -41,7 +43,8 @@ def test_datastreamview_forget_all():
         dsv[-1]
 
 
-def test_datastream_keep_newest():
+def test_datastream_keep_newest() -> None:
+    """Test forgetting."""
     ds = ls.DataStream(owner=ls.Id())
     ds.set_history_bound(ls.NumberBound(1))
 
@@ -53,7 +56,8 @@ def test_datastream_keep_newest():
             ds[-2]
 
 
-def test_datastreamview_keep_newest():
+def test_datastreamview_keep_newest() -> None:
+    """Test forgetting."""
     term = ls.Id()
     ds = ls.DataStream(owner=term)
     ds.set_history_bound(ls.NumberBound(1))

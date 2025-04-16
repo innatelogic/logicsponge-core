@@ -1,11 +1,13 @@
-# type: ignore
+"""Test joining."""
 
 import logicsponge.core as ls
 
 
-def test_source():
+def test_source() -> None:
+    """Test source."""
+
     class MySource(ls.SourceTerm):
-        def run(self):
+        def run(self) -> None:
             for i in range(10):
                 ds = ls.DataItem({"subject_id": i})
                 self.output(ds)
@@ -15,9 +17,11 @@ def test_source():
     sponge.join()
 
 
-def test_id():
+def test_id() -> None:
+    """Test Id."""
+
     class MySource(ls.SourceTerm):
-        def run(self):
+        def run(self) -> None:
             for i in range(10):
                 ds = ls.DataItem({"subject_id": i})
                 self.output(ds)
@@ -27,9 +31,11 @@ def test_id():
     sponge.join()
 
 
-def test_parallel_id():
+def test_parallel_id() -> None:
+    """Test parallel Id."""
+
     class MySource(ls.SourceTerm):
-        def run(self):
+        def run(self) -> None:
             for i in range(10):
                 ds = ls.DataItem({"subject_id": i})
                 self.output(ds)

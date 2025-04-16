@@ -236,7 +236,7 @@ class SharedQueueView(Generic[T]):
     _queue: SharedQueue[T]
     _cid: int
 
-    def __init__(self, queue: SharedQueue[T], cid: int):
+    def __init__(self, queue: SharedQueue[T], cid: int) -> None:
         self._queue = queue
         self._cid = cid
 

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Never
 
 import numpy as np
 import scipy.stats
@@ -17,10 +17,10 @@ class BaseStatistic(ls.FunctionTerm):
         self.dim = dim
         self.stat_name = "base_statistic"
 
-    def calculate(self, *args, **kwargs):
+    def calculate(self, *args, **kwargs) -> Never:
         raise NotImplementedError
 
-    def run(self, ds_view: ls.DataStreamView):
+    def run(self, ds_view: ls.DataStreamView) -> None:
         while True:
             ds_view.next()
             self._latency_queue.tic()
@@ -51,7 +51,7 @@ class BaseStatistic(ls.FunctionTerm):
 class Sum(ls.FunctionTerm):
     """Computes cumulative sum of `key` over data items."""
 
-    def __init__(self, *args, key: str, **kwargs):
+    def __init__(self, *args, key: str, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.key = key
         self.state["value"] = 0.0  # initially, sum is 0
@@ -64,7 +64,7 @@ class Sum(ls.FunctionTerm):
 class Mean(BaseStatistic):
     """Computes mean per data item."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.stat_name = "mean"
 
@@ -76,7 +76,7 @@ class Mean(BaseStatistic):
 class Std(BaseStatistic):
     """Computes standard deviation per data item."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.stat_name = "std"
 
@@ -119,10 +119,10 @@ class TestStatistic(ls.FunctionTerm):
         self.arity = None
         self.dim = dim
 
-    def calculate(self, *args, **kwargs):
+    def calculate(self, *args, **kwargs) -> Never:
         raise NotImplementedError
 
-    def run(self, ds_view: ls.DataStreamView):
+    def run(self, ds_view: ls.DataStreamView) -> None:
         while True:
             ds_view.next()
             self._latency_queue.tic()

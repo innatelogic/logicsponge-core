@@ -27,7 +27,7 @@ class PlotParams(TypedDict):
 
 
 class Plot(ls.FunctionTerm):
-    """plot data items
+    """plot data items.
 
     typical uses are:
     - Plot(x='a', y=['b', 'c'])
@@ -229,8 +229,8 @@ class DeepPlot(ls.FunctionTerm):
         y = params["y"]
 
         x = params["x"] if "x" in params else range(len(y))
-        args = params["args"] if "args" in params else []
-        kwargs = params["kwargs"] if "kwargs" in params else {}
+        args = params.get("args", [])
+        kwargs = params.get("kwargs", {})
 
         self.ax.plot(x, y, *args, **kwargs)
         self.fig.canvas.draw_idle()
@@ -251,7 +251,7 @@ class DeepPlot(ls.FunctionTerm):
         return item
 
     def then(self, fun: Callable[[Self, ls.DataItem], None]) -> Self:
-        """Run a function after the plotting"""
+        """Run a function after the plotting."""
         self.then_fun = fun
         return self
 

@@ -620,7 +620,7 @@ class DeepPlot(ls.FunctionTerm):
 
         x = params["x"] if "x" in params else [float(i) for i in range(len(y))]
         # args = params["args"] if "args" in params else []
-        kwargs = params["kwargs"] if "kwargs" in params else {}
+        kwargs = params.get("kwargs", {})
 
         label = kwargs.get("label", None)
         self.graph.add_line(x=x, y=y, label=label)
