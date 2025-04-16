@@ -279,6 +279,7 @@ class SharedQueueView(Generic[T]):
         raise TypeError
 
     def peek(self) -> bool:
+        """Peek on view."""
         return self._queue.peek(cid=self._cid)
 
     def next(self) -> None:
