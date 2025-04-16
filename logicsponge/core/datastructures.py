@@ -231,6 +231,7 @@ class SharedQueue(Generic[T]):
                     self._cursors[cid] = cursor.next
 
     def get_relative(self, cid: int, index: int) -> T:
+        """Return the content of a node relative to a cursor."""
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             cursor = self._cursors[cid]
             if cursor is None:

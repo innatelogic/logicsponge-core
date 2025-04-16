@@ -180,11 +180,14 @@ class Plot(ls.FunctionTerm):
 
 
 class DeepPlot(ls.FunctionTerm):
+    """A complete, non-iterative plot."""
+
     fig: matplotlib.figure.Figure | None
     ax: matplotlib.axes.Axes | None
     then_fun: Callable[[Self, ls.DataItem], None] | None
 
     def __init__(self, *argv, **argk) -> None:
+        """Create a DeepPlot object."""
         super().__init__(*argv, **argk)
         self.lines = {}
         self.fig, self.ax = plt.subplots()
@@ -208,6 +211,7 @@ class DeepPlot(ls.FunctionTerm):
                     self._call_plot_dicts(d[k])
 
     def plot(self, params: PlotParams) -> None:
+        """Make the plot."""
         self._axis_setup(params)
 
         # draw
@@ -257,6 +261,7 @@ class DeepPlot(ls.FunctionTerm):
 
 
 def is_finite(num: float | np.number) -> bool:
+    """Return if num is finite."""
     # try:
     return not (math.isnan(num) or math.isinf(num))
     # except Exception as e:
