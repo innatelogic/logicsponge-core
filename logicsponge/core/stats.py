@@ -1,3 +1,5 @@
+"""Statistics for logcisponge."""
+
 from typing import Any, Never
 
 import numpy as np
@@ -12,15 +14,18 @@ class BaseStatistic(ls.FunctionTerm):
     dim: int
     stat_name: str
 
-    def __init__(self, *args, dim: int = 1, **kwargs) -> None:
+    def __init__(self, *args, dim: int = 1, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.dim = dim
         self.stat_name = "base_statistic"
 
-    def calculate(self, *args, **kwargs) -> Never:
+    def calculate(self, *args, **kwargs) -> Any:  # noqa: ANN002, ANN003, ANN401
+        """Calculate the statistics."""
         raise NotImplementedError
 
     def run(self, ds_view: ls.DataStreamView) -> None:
+        """Execute the Term's run."""
         while True:
             ds_view.next()
             self._latency_queue.tic()
@@ -51,12 +56,14 @@ class BaseStatistic(ls.FunctionTerm):
 class Sum(ls.FunctionTerm):
     """Computes cumulative sum of `key` over data items."""
 
-    def __init__(self, *args, key: str, **kwargs) -> None:
+    def __init__(self, *args, key: str, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.key = key
         self.state["value"] = 0.0  # initially, sum is 0
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
+        """Run on new data."""
         self.state["value"] += item[self.key]
         return ls.DataItem({"sum": self.state["value"]})
 
@@ -64,11 +71,13 @@ class Sum(ls.FunctionTerm):
 class Mean(BaseStatistic):
     """Computes mean per data item."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.stat_name = "mean"
 
     def calculate(self, values: np.ndarray) -> float:
+        """Perform the calculation of the statistics."""
         mean = np.mean(values)
         return float(mean)
 
@@ -76,11 +85,13 @@ class Mean(BaseStatistic):
 class Std(BaseStatistic):
     """Computes standard deviation per data item."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.stat_name = "std"
 
     def calculate(self, values: np.ndarray) -> float:
+        """Perform the calculation of the statistics."""
         std = np.std(values)
         return float(std)
 
@@ -95,11 +106,13 @@ class StdHull(BaseStatistic):
 
     factor: float
 
-    def __init__(self, *args, factor: float = 1.0, **kwargs) -> None:
+    def __init__(self, *args, factor: float = 1.0, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.factor = factor
 
     def calculate(self, values: np.ndarray) -> dict[str, Any]:
+        """Perform the calculation of the statistics."""
         mean = np.mean(values)
         std = np.std(values)
         lower_bound = mean - self.factor * std
@@ -114,15 +127,18 @@ class TestStatistic(ls.FunctionTerm):
     dim: int
     stat_name: str
 
-    def __init__(self, *args, dim: int = 1, **kwargs) -> None:
+    def __init__(self, *args, dim: int = 1, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.arity = None
         self.dim = dim
 
-    def calculate(self, *args, **kwargs) -> Never:
+    def calculate(self, *args, **kwargs) -> Any:  # noqa: ANN002, ANN003, ANN401
+        """Perform the calculation of the statistics."""
         raise NotImplementedError
 
     def run(self, ds_view: ls.DataStreamView) -> None:
+        """Execute the Term's run."""
         while True:
             ds_view.next()
             self._latency_queue.tic()
@@ -152,14 +168,16 @@ class TestStatistic(ls.FunctionTerm):
 
 
 class OneSampleTTest(TestStatistic):
-    """Performs t-Test."""
+    """Performs a t-Test."""
 
-    def __init__(self, *args, mean: float = 0.0, **kwargs) -> None:
+    def __init__(self, *args, mean: float = 0.0, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.arity = 1
         self.mean = mean
 
     def calculate(self, values: np.ndarray) -> dict[str, Any]:
+        """Perform the calculation of the statistics."""
         if len(values) <= 1:
             return {"t-statistic": None, "p-value": None}
         t_statistic, p_value = scipy.stats.ttest_1samp(values, self.mean)
@@ -169,12 +187,14 @@ class OneSampleTTest(TestStatistic):
 class PairedTTest(TestStatistic):
     """Performs paired t-Test."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.arity = 2
         self.dim = 0
 
     def calculate(self, series1: np.ndarray, series2: np.ndarray) -> dict[str, Any]:
+        """Perform the calculation of the statistics."""
         if len(series1) <= 1 or len(series2) <= 1:
             return {"t-statistic": None, "p-value": None}
         t_statistic, p_value = scipy.stats.ttest_rel(series1, series2)
@@ -184,12 +204,14 @@ class PairedTTest(TestStatistic):
 class KruskalWallis(TestStatistic):
     """Performs Kruskal-Wallis-Test."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.arity = None
         self.dim = 0
 
     def calculate(self, *series: np.ndarray) -> dict[str, Any]:
+        """Perform the calculation of the statistics."""
         if any(len(s) <= 1 for s in series):
             return {"h-statistic": None, "p-value": None}
 
