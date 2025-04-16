@@ -1,3 +1,5 @@
+"""Dashboards for logicsponge."""
+
 import logging
 import math
 from collections.abc import Callable
@@ -20,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 class PlotParams(TypedDict):
+    """Plot parameters."""
+
     x: list[float]
     y: list[float]
     args: list
@@ -27,7 +31,7 @@ class PlotParams(TypedDict):
 
 
 class Plot(ls.FunctionTerm):
-    """plot data items.
+    """Plot data items.
 
     typical uses are:
     - Plot(x='a', y=['b', 'c'])
@@ -44,9 +48,10 @@ class Plot(ls.FunctionTerm):
     incremental: bool
 
     def __init__(
-        self, *argv, x: str = "round", y: str | list[str] | None = None, incremental: bool = True, **argk
+        self, *args, x: str = "round", y: str | list[str] | None = None, incremental: bool = True, **kwargs  # noqa: ANN002, ANN003
     ) -> None:
-        super().__init__(*argv, **argk)
+        """Create a Plot object."""
+        super().__init__(*args, **kwargs)
         self.state = {
             "x": [],
             "y": {},
@@ -81,6 +86,7 @@ class Plot(ls.FunctionTerm):
         self.ax.set_title(self.name)
 
     def plot(self, item: ls.DataItem) -> None:
+        """Make the plot."""
         to_plot = item["plot"]
         self._axis_setup(to_plot)
 
@@ -126,6 +132,7 @@ class Plot(ls.FunctionTerm):
         self.fig.canvas.draw_idle()
 
     def add_data(self, item: ls.DataItem) -> None:
+        """Add data to the plot."""
         if len(self.state["x"]) == 0:
             # first plot
             self._axis_setup(item)
@@ -172,6 +179,7 @@ class Plot(ls.FunctionTerm):
         self.fig.canvas.draw_idle()
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
+        """Run on new data."""
         if self.incremental:
             self.add_data(item)
         else:
@@ -186,9 +194,9 @@ class DeepPlot(ls.FunctionTerm):
     ax: matplotlib.axes.Axes | None
     then_fun: Callable[[Self, ls.DataItem], None] | None
 
-    def __init__(self, *argv, **argk) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create a DeepPlot object."""
-        super().__init__(*argv, **argk)
+        super().__init__(*args, **kwargs)
         self.lines = {}
         self.fig, self.ax = plt.subplots()
 
@@ -240,6 +248,7 @@ class DeepPlot(ls.FunctionTerm):
         self.fig.canvas.draw_idle()
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
+        """Run f on new data items."""
         # potentially clear the axis
         if self.ax is not None:
             self.ax.clear()
