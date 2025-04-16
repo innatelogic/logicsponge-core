@@ -701,6 +701,7 @@ class DataStreamView:
         self._view.next()
 
     def tail(self, n: int) -> list[DataItem]:
+        """Return the tail."""
         raise NotImplementedError
         if n <= 0:
             raise IndexError(n)
@@ -708,6 +709,7 @@ class DataStreamView:
 
     @property
     def stats(self) -> ViewStatistics:
+        """Return statistics."""
         raise NotImplementedError
         return {
             "read": self.pos,
@@ -715,8 +717,12 @@ class DataStreamView:
         }
 
     def key_to_list(self, key: str, *, include_missing: bool = False) -> list[Any]:
-        """Return the list of values associated with key in each DataItem
-        (include_missing indicates whether None is included if the key/value doesn't exist).
+        """Return the list of values associated with key in each DataItem.
+
+        Args:
+            key (str): the key.
+            include_missing (bool): Indicates whether None is included if the key/value doesn't exist.
+
         """
         raise NotImplementedError
 
@@ -727,12 +733,15 @@ class DataStreamView:
 
 
 class Term(ABC):
+    """The basic Term class."""
+
     name: str
     id: str | None
     _outputs: dict[str, DataStream]
     _parent: "Term | None"
 
     def __init__(self, name: str | None = None, **kwargs) -> None:  # noqa: ARG002
+        """Create a Term."""
         # self.inputs: dict[str, DataStream] = {}
         # self.outputs: dict[str, DataStream] = {}
         self.id = None
