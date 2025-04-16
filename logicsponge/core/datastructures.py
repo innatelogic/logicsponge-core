@@ -170,6 +170,13 @@ class SharedQueue(Generic[T]):
                 self._head = node
                 node.prev = None
 
+    def peek(self, cid: int) -> bool:
+        with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock
+            cursor = self._cursors[cid]
+            if cursor is None:
+                return self._head is not None
+            return cursor.next is not None
+
     def next(self, cid: int) -> None:
         with self._new_data:
             with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
@@ -247,6 +254,9 @@ class SharedQueueView(Generic[T]):
         if isinstance(index, slice):
             raise NotImplementedError
         raise TypeError
+
+    def peek(self) -> bool:
+        return self._queue.peek(cid=self._cid)
 
     def next(self) -> None:
         # SAFETY: From safety of SharedQueue.next.
