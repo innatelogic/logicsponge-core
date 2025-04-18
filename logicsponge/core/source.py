@@ -141,7 +141,7 @@ class GoogleDriveSource(ls.SourceTerm):
 
     def download(self) -> None:
         """Download the file."""
-        gdown.download(url=self.google_drive_link, output=self.local_filename, fuzzy=True, quiet=True)
+        gdown.download(url=self.google_drive_link, output=str(self.local_filename), fuzzy=True, quiet=True)
 
     def run(self) -> None:
         """Execute the run."""
