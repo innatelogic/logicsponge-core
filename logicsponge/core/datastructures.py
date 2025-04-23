@@ -1,11 +1,12 @@
 """Contains data structures for internal use in logicsponge-core."""
 
 from threading import Condition
-from typing import Generic, TypeVar
+from typing import Generic, NewType, TypeVar
 
 from readerwriterlock import rwlock
 
 T = TypeVar("T")
+CursorID = NewType("CursorID", int)
 
 
 class SharedQueueNode(Generic[T]):
@@ -32,7 +33,7 @@ class SharedQueue(Generic[T]):
     _new_data: Condition
 
     _next_cid: int
-    _cursors: dict[int, SharedQueueNode[T] | None]
+    _cursors: dict[CursorID, SharedQueueNode[T] | None]
 
     def __init__(self) -> None:
         """Create a SharedQueue object."""
@@ -55,7 +56,7 @@ class SharedQueue(Generic[T]):
                 node = node.next
             return count
 
-    def len_until_cursor(self, cid: int) -> int:
+    def len_until_cursor(self, cid: CursorID) -> int:
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             cursor = self._cursors[cid]
             if cursor is None:
@@ -119,7 +120,7 @@ class SharedQueue(Generic[T]):
                 node = node.next
         return lst
 
-    def to_list_until_cursor(self, cid: int) -> list[T]:
+    def to_list_until_cursor(self, cid: CursorID) -> list[T]:
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             cursor = self._cursors[cid]
             if cursor is None:
@@ -133,15 +134,15 @@ class SharedQueue(Generic[T]):
                 node = node.next
         return lst
 
-    def register_consumer(self) -> int:
+    def register_consumer(self) -> CursorID:
         """Register a consumer."""
         with self._global_lock.gen_wlock():  # LIVENESS: Doesn't request another lock.
-            cid = self._next_cid
+            cid = CursorID(self._next_cid)
             self._next_cid += 1
             self._cursors[cid] = None
             return cid
 
-    def unregister_consumer(self, cid: int) -> None:
+    def unregister_consumer(self, cid: CursorID) -> None:
         """Unregister a consumer."""
         with self._global_lock.gen_wlock():  # LIVENESS: Doesn't request another lock.
             self._cursors.pop(cid, None)
@@ -183,14 +184,14 @@ class SharedQueue(Generic[T]):
                 self._head = node
                 node.prev = None
 
-    def peek(self, cid: int) -> bool:
+    def peek(self, cid: CursorID) -> bool:
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock
             cursor = self._cursors[cid]
             if cursor is None:
                 return self._head is not None
             return cursor.next is not None
 
-    def next(self, cid: int) -> None:
+    def next(self, cid: CursorID) -> None:
         with self._new_data:
             with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
                 cursor = self._cursors[cid]
@@ -224,7 +225,7 @@ class SharedQueue(Generic[T]):
                 ):  # LIVENESS: Doesn't request another lock (see liveness of next_not_none).
                     self._cursors[cid] = cursor.next
 
-    def get_relative(self, cid: int, index: int) -> T:
+    def get_relative(self, cid: CursorID, index: int) -> T:
         with self._global_lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             cursor = self._cursors[cid]
             if cursor is None:
@@ -256,9 +257,9 @@ class SharedQueueView(Generic[T]):
     """View of a SharedQueue."""
 
     _queue: SharedQueue[T]
-    _cid: int
+    _cid: CursorID
 
-    def __init__(self, queue: SharedQueue[T], cid: int) -> None:
+    def __init__(self, queue: SharedQueue[T], cid: CursorID) -> None:
         """Create a SharedQueueView object."""
         self._queue = queue
         self._cid = cid
