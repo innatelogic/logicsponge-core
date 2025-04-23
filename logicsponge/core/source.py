@@ -4,7 +4,9 @@ import csv
 import logging
 import tempfile
 import time
+from collections.abc import Callable, Hashable, Iterable
 from pathlib import Path
+from typing import Any
 
 import chardet
 import gdown
@@ -141,7 +143,7 @@ class GoogleDriveSource(ls.SourceTerm):
 
     def download(self) -> None:
         """Download the file."""
-        gdown.download(url=self.google_drive_link, output=self.local_filename, fuzzy=True, quiet=True)
+        gdown.download(url=self.google_drive_link, output=str(self.local_filename), fuzzy=True, quiet=True)
 
     def run(self) -> None:
         """Execute the run."""
@@ -233,3 +235,56 @@ class LineParser(ls.FunctionTerm):
             raise ValueError(msg)
 
         return ls.DataItem({self.header[i]: line_list[i] for i in range(len(line_list))})
+
+
+class IterableSource(ls.SourceTerm):
+    """Stream an Iterable like a list, tuple, etc."""
+
+    _iterable: Iterable
+    _formatter: Callable[[Any], dict[str, Hashable]]
+
+    @staticmethod
+    def formatter_default(item: Any) -> dict[str, Hashable]:  # noqa: ANN401
+        """Format an item per default."""
+        if isinstance(item, dict):
+            return item
+        return {"val": item}
+
+    @staticmethod
+    def _is_iterable(item: Any) -> bool:  # noqa: ANN401
+        """Return is item is an Iterable, but exclude the non-intended str and byte."""
+        return isinstance(item, Iterable) and not isinstance(item, (str, bytes))
+
+    def __init__(
+        self,
+        iterable: Iterable = (),
+        name: str | None = None,
+        formatter: Callable[[Any], dict[str, Hashable]] = formatter_default,
+        **kwargs,  # noqa: ANN003
+    ) -> None:
+        """Create an IterableSource.
+
+        Arguments:
+            iterable (Iterable, optional): The Iterable, over which the source will iterate and stream
+                to its output.
+                By default, the items are expected to be dicts with keys as str.
+                If not, use the formatter keyword.
+            name (str | None, optional): The name of the Term.
+            formatter (Callable[[Any], dict[str, Hashable]], optional): A function that is called on each item
+                of the iterable and that is expected to return a dict with keys as strings.
+                By the fault the identity is used as the formatter.
+            **kwargs: Remaining kwargs.
+
+        """
+        if not self._is_iterable(iterable):
+            msg = f"'{iterable}' is not a valid Iterable."
+            raise TypeError(msg)
+        self._iterable = iterable
+        self._formatter = formatter
+        super().__init__(name=name, **kwargs)
+
+    def run(self) -> None:
+        """Execute the run."""
+        for item in self._iterable:
+            formatted = self._formatter(item)
+            self.output(ls.DataItem(formatted))

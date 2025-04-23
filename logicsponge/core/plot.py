@@ -49,7 +49,7 @@ class Plot(ls.FunctionTerm):
 
     def __init__(
         self,
-        *args,
+        *args,  # noqa: ANN002
         x: str = "round",
         y: str | list[str] | None = None,
         incremental: bool = True,
@@ -91,7 +91,7 @@ class Plot(ls.FunctionTerm):
         self.ax.set_title(self.name)
 
     def plot(self, item: ls.DataItem) -> None:
-        """Make the plot."""
+        """Plot the new item."""
         to_plot = item["plot"]
         self._axis_setup(to_plot)
 
@@ -184,7 +184,7 @@ class Plot(ls.FunctionTerm):
         self.fig.canvas.draw_idle()
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
-        """Run on new data."""
+        """Run on new data item."""
         if self.incremental:
             self.add_data(item)
         else:
@@ -253,7 +253,7 @@ class DeepPlot(ls.FunctionTerm):
         self.fig.canvas.draw_idle()
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
-        """Run f on new data items."""
+        """Run f on new data item."""
         # potentially clear the axis
         if self.ax is not None:
             self.ax.clear()
@@ -275,7 +275,7 @@ class DeepPlot(ls.FunctionTerm):
 
 
 def is_finite(num: float | np.number) -> bool:
-    """Return if num is finite."""
+    """Return if num is a finite number."""
     # try:
     return not (math.isnan(num) or math.isinf(num))
     # except Exception as e:

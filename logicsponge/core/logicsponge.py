@@ -11,7 +11,7 @@ from collections.abc import Callable, Hashable, Iterator
 from datetime import UTC, datetime
 from enum import Enum
 from functools import reduce
-from typing import Any, Self, TypedDict, TypeVar
+from typing import Any, Self, TypedDict, TypeVar, overload
 
 from frozendict import frozendict
 from readerwriterlock import rwlock
@@ -44,22 +44,40 @@ State = dict[str, Any]
 
 
 class LatencyQueue:
-    """A queue of latencies, used to generate statistics of terms."""
+    """A queue of latencies, used to generate statistics of terms.
+
+    Attributes:
+        queue (deque): The queue of latencies.
+        tic_time (float, optional): time of last tic() execution.
+
+    """
 
     queue: deque
     tic_time: float | None
 
     def __init__(self, max_size: int = 100) -> None:
-        """Create a LatencyQueue object."""
+        """Create a LatencyQueue object.
+
+        Args:
+            max_size (int): the maximal size of the queue. Adding to a queue of this size, leads to
+                the removal of the oldest entry.
+
+        """
         self.tic_time = None
         self.queue = deque(maxlen=max_size)
 
     def tic(self) -> None:
-        """Start a latency measurement."""
+        """Start a latency measurement.
+
+        To be used with a successive toc().
+        """
         self.tic_time = datetime.now(UTC).timestamp()
 
     def toc(self) -> None:
-        """Stop a latency measurement."""
+        """Stop a latency measurement.
+
+        Call after a corresponding tic().
+        """
         toc_time = datetime.now(UTC).timestamp()
         if self.tic_time is None:
             msg = "need to tic first"
@@ -69,7 +87,12 @@ class LatencyQueue:
 
     @property
     def avg(self) -> float:
-        """Average latency in seconds."""
+        """Average latency in seconds.
+
+        Returns:
+            float: The average of all latencies in the queue. In [s].
+
+        """
         latencies = list(self.queue)
         if self.tic_time is not None:
             current_latency = datetime.now(UTC).timestamp() - self.tic_time
@@ -80,7 +103,12 @@ class LatencyQueue:
 
     @property
     def max(self) -> float:
-        """Maximum latency in seconds."""
+        """Maximum latency in seconds.
+
+        Returns:
+            float: The maximum of all latencies in the queue. In [s].
+
+        """
         latencies = list(self.queue)
         if self.tic_time is not None:
             current_latency = datetime.now(UTC).timestamp() - self.tic_time
@@ -245,7 +273,7 @@ class DataItem:
             key: The key to be checked.
 
         Returns:
-            True if the DataItem contins a data value for the given key.
+            True if the DataItem contains a data value for the given key.
 
         """
         return key in self._data
@@ -483,6 +511,12 @@ class DataStream:
         # SAFETY: From safety of SharedQueue.__len__.
         return len(self._data)
 
+    @overload
+    def __getitem__(self, index: int) -> DataItem: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[DataItem]: ...
+
     def __getitem__(self, index: int | slice) -> DataItem | list[DataItem]:
         """Get DataItem(s) with a given index or slice.
 
@@ -676,6 +710,12 @@ class DataStreamView:
         # SAFETY: From safety of SharedQueueView.__len__.
         return len(self._view)
 
+    @overload
+    def __getitem__(self, index: int) -> DataItem: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[DataItem]: ...
+
     def __getitem__(self, index: int | slice) -> DataItem | list[DataItem]:
         """Get DataItem(s) with a given index or slice.
 
@@ -758,7 +798,14 @@ class DataStreamView:
 
 
 class Term(ABC):
-    """The basic Term class."""
+    """The basic Term class.
+
+    Attributes:
+        name (str): The name of the Term. This will also be the name
+            of the output stream.
+        id (str, optional): Unique id of the Term, or None.
+
+    """
 
     name: str
     id: str | None
@@ -790,14 +837,14 @@ class Term(ABC):
         pass
 
     def __mul__(self, other: "Term") -> "SequentialTerm":
-        """Compose sequentially."""
+        """Compose the Term sequentially with the other Term."""
         if isinstance(other, Term):
             return SequentialTerm(self, other)
         msg = "Only terms can be combined in sequence"
         raise TypeError(msg)
 
     def __or__(self, other: "Term") -> "ParallelTerm":
-        """Compose in parallel."""
+        """Compose the Term in parallel with the other Term."""
         if isinstance(other, Term):
             return ParallelTerm(self, other)
         msg = "Only terms can be combined in parallel"
@@ -813,7 +860,7 @@ class Term(ABC):
 
     @abstractmethod
     def join(self) -> None:
-        """Wait for a Term to stop its execution."""
+        """Wait for a Term to terminate."""
 
     def cancel(self) -> None:
         """Cancel the Term."""
@@ -941,13 +988,18 @@ class ConstantSourceTerm(SourceTerm):
         self._items = items
 
     def run(self) -> None:
-        """Execute run."""
+        """Output all items in the list and then terminate."""
         for item in self._items:
             self.output(item)
 
 
 class FunctionTerm(Term):
-    """A Term that receives data, performs a function on it, and outputs the resulting data."""
+    """A Term that receives data, performs a function on it, and outputs the resulting data.
+
+    Attributes:
+        state (State): The Term's state. Any state should go in here.
+
+    """
 
     _inputs: dict[str, DataStreamView]  # name -> input stream view
     _output: DataStream
@@ -988,11 +1040,11 @@ class FunctionTerm(Term):
         self.stop()
 
     def f(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
-        """Execute f."""
+        """Execute f on reception of a new DataItem."""
         raise NotImplementedError
 
     def run(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-        """Execute run."""
+        """Execute run and terminate afterwards."""
         raise NotImplementedError
 
     def stop(self) -> None:
@@ -1236,7 +1288,10 @@ class FunctionTerm(Term):
 
     @property
     def stats(self) -> dict:
-        """Return statistics."""
+        """Return statistics.
+
+        TODO: fix read/write statistics.
+        """
         term_type = self.__class__.__name__
         return {
             "name": self.name,
@@ -1247,7 +1302,7 @@ class FunctionTerm(Term):
                 "latency_avg": self._latency_queue.avg,
                 "latency_max": self._latency_queue.max,
             },
-            "inputs": {dsv.ds.id: {"read": dsv.pos, "write": len(dsv.ds)} for dsv in self._inputs.values()},
+            "inputs": {dsv.get_id(): {"read": 0, "write": 0} for dsv in self._inputs.values()},  # TODO: fix
         }
 
 
@@ -1374,7 +1429,10 @@ class DynamicSpawnTerm(Term):
 
     @property
     def stats(self) -> dict:
-        """Return the statistics."""
+        """Return the statistics.
+
+        TODO: fix read/write statistics.
+        """
         term_type = self.__class__.__name__
         return {
             "name": self.name,
@@ -1385,7 +1443,7 @@ class DynamicSpawnTerm(Term):
                 "latency_avg": self._latency_queue.avg,
                 "latency_max": self._latency_queue.max,
             },
-            "inputs": {dsv.ds.id: {"read": dsv.pos, "write": len(dsv.ds)} for dsv in self._inputs.values()},
+            "inputs": {dsv.get_id(): {"read": 0, "write": 0} for dsv in self._inputs.values()},  # TODO: fix
         }
 
 
