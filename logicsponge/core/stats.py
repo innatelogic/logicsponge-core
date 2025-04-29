@@ -14,43 +14,43 @@ class BaseStatistic(ls.FunctionTerm):
     dim: int
     stat_name: str
 
+    state: ls.State
+
     def __init__(self, *args, dim: int = 1, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create an instance."""
         super().__init__(*args, **kwargs)
+
         self.dim = dim
         self.stat_name = "base_statistic"
+
+        self.state = {}
 
     def calculate(self, *args, **kwargs) -> Any:  # noqa: ANN002, ANN003, ANN401
         """Calculate the statistics."""
         raise NotImplementedError
 
-    def run(self, ds_view: ls.DataStreamView) -> None:
-        """Execute the Term's run."""
-        while True:
-            ds_view.next()
-            self._latency_queue.tic()
+    def f(self, di: ls.DataItem) -> ls.DataItem:
+        """Collect data and calculate the statistics."""
+        if self.dim == 0:
+            for key in di:
+                if key not in self.state:
+                    self.state[key] = []
+                self.state[key].append(di[key])
 
-            if self.dim == 0:
-                keys = ds_view[-1].keys()
-                results = ls.DataItem(
-                    {key: self.calculate(np.array(ds_view.key_to_list(key), dtype=float)) for key in keys}
-                )
-                self.output(results)
+            results = ls.DataItem({key: self.calculate(np.array(self.state[key], dtype=float)) for key in di})
+            self.output(results)
 
-            elif self.dim == 1:
-                values = np.array(list(ds_view[-1].values()), dtype=float)
-                result = self.calculate(values)
-                if isinstance(result, dict):
-                    self.output(ls.DataItem(result))
-                else:
-                    out = ls.DataItem({self.stat_name: result})
-                    self.output(out)
+        if self.dim == 1:
+            values = np.array(list(di.values()), dtype=float)
+            result = self.calculate(values)
 
-            else:
-                msg = f"Unknown dimension {self.dim}"
-                raise ValueError(msg)
+            if isinstance(result, dict):
+                return ls.DataItem(result)
 
-            self._latency_queue.toc()
+            return ls.DataItem({self.stat_name: result})
+
+        msg = f"Unknown dimension {self.dim}"
+        raise ValueError(msg)
 
 
 class Sum(ls.FunctionTerm):
@@ -127,44 +127,48 @@ class TestStatistic(ls.FunctionTerm):
     dim: int
     stat_name: str
 
+    state: ls.State
+
     def __init__(self, *args, dim: int = 1, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create an instance."""
         super().__init__(*args, **kwargs)
+
         self.arity = None
         self.dim = dim
+
+        self.state = {}
 
     def calculate(self, *args, **kwargs) -> Any:  # noqa: ANN002, ANN003, ANN401
         """Perform the calculation of the statistics."""
         raise NotImplementedError
 
-    def run(self, ds_view: ls.DataStreamView) -> None:
-        """Execute the Term's run."""
-        while True:
-            ds_view.next()
-            self._latency_queue.tic()
-
-            if self.dim == 0:
-                keys = ds_view[-1].keys()
-                if self.arity is not None and len(ds_view[-1]) != self.arity:
-                    msg = f"Arity of test statistic does not match number of inputs {len(ds_view[-1])}"
-                    raise ValueError(msg)
-                series_list = [np.array(ds_view.key_to_list(key), dtype=float) for key in keys]
-                result = self.calculate(*series_list)
-                self.output(ls.DataItem(result))
-
-            elif self.dim == 1:
-                if self.arity != 1:
-                    msg = f"Arity of test statistic is {self.arity} but should be 1"
-                    raise ValueError(msg)
-                values = np.array(list(ds_view[-1].values()), dtype=float)
-                result = self.calculate(values)
-                self.output(ls.DataItem(result))
-
-            else:
-                msg = f"Unknown dimension {self.dim}"
+    def f(self, di: ls.DataItem) -> ls.DataItem:
+        """Collect data and calculate the statistics."""
+        if self.dim == 0:
+            if self.arity is not None and len(di) != self.arity:
+                msg = f"Arity of test statistic does not match number of inputs {len(di)}"
                 raise ValueError(msg)
 
-            self._latency_queue.toc()
+            for key in di:
+                if key not in self.state:
+                    self.state[key] = []
+                self.state[key].append(di[key])
+
+            series_list = [np.array(self.state[key], dtype=float) for key in di]
+
+            result = self.calculate(*series_list)
+            return ls.DataItem(result)
+
+        if self.dim == 1:
+            if self.arity != 1:
+                msg = f"Arity of test statistic is {self.arity} but should be 1"
+                raise ValueError(msg)
+            values = np.array(list(di.values()), dtype=float)
+            result = self.calculate(values)
+            return ls.DataItem(result)
+
+        msg = f"Unknown dimension {self.dim}"
+        raise ValueError(msg)
 
 
 class OneSampleTTest(TestStatistic):

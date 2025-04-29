@@ -781,21 +781,6 @@ class DataStreamView:
             "write": len(self.ds),
         }
 
-    def key_to_list(self, key: str, *, include_missing: bool = False) -> list[Any]:
-        """Return the list of values associated with key in each DataItem.
-
-        Args:
-            key (str): the key.
-            include_missing (bool): Indicates whether None is included if the key/value doesn't exist.
-
-        """
-        raise NotImplementedError
-
-        with self.ds.lock.gen_rlock():
-            if include_missing:
-                return [item.get(key, None) for item in self[:]]
-            return [item[key] for item in self[:] if key in item]
-
 
 class Term(ABC):
     """The basic Term class.
