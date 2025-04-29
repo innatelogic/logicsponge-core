@@ -54,7 +54,7 @@ reportUnusedVariable = true
 [tool.ruff]
 line-length = 120
 lint.select = ["ALL"]
-lint.ignore = ["COM812", "CPY001", "ERA001", "FIX", "ISC001", "TD002", "TD003"]
+lint.ignore = ["COM812", "CPY001", "D203", "D213", "ERA001", "FIX", "ISC001", "TD002", "TD003"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/examples/*" = ["INP001", "T201"]
