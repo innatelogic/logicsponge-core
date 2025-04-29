@@ -1,4 +1,4 @@
-# type: ignore
+"""Test stopping."""
 
 import logging
 
@@ -8,17 +8,19 @@ import logicsponge.core as ls
 logger = logging.getLogger(__name__)
 
 
-def test_run_dataitem():
+def test_run_dataitem() -> None:
+    """Test run with stop."""
+
     class MySource(ls.SourceTerm):
-        def run(self):
+        def run(self) -> None:
             for i in range(10):
                 self.output(ls.DataItem({"say": i}))
 
-        def exit(self):
+        def exit(self) -> None:
             logger.info("MySource.exit")
 
     class MyF(ls.FunctionTerm):
-        def f(self, di: ls.DataItem):
+        def f(self, di: ls.DataItem) -> None:
             if not self.state:
                 self.state["say_expected"] = 0
             else:
@@ -28,7 +30,7 @@ def test_run_dataitem():
             assert di["say"] == self.state["say_expected"]
             self.output(di)
 
-        def exit(self):
+        def exit(self) -> None:
             logger.info("MyF.exit")
 
     sponge = MySource() * MyF("a") * MyF("b")

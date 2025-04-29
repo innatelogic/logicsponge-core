@@ -1,3 +1,5 @@
+"""Statistics for logcisponge."""
+
 from typing import Any
 
 import numpy as np
@@ -12,51 +14,56 @@ class BaseStatistic(ls.FunctionTerm):
     dim: int
     stat_name: str
 
-    def __init__(self, *args, dim: int = 1, **kwargs) -> None:
+    state: ls.State
+
+    def __init__(self, *args, dim: int = 1, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
+
         self.dim = dim
         self.stat_name = "base_statistic"
 
-    def calculate(self, *args, **kwargs):
+        self.state = {}
+
+    def calculate(self, *args, **kwargs) -> Any:  # noqa: ANN002, ANN003, ANN401
+        """Calculate the statistics."""
         raise NotImplementedError
 
-    def run(self, ds_view: ls.DataStreamView):
-        while True:
-            ds_view.next()
-            self._latency_queue.tic()
+    def f(self, di: ls.DataItem) -> ls.DataItem:
+        """Collect data and calculate the statistics."""
+        if self.dim == 0:
+            for key in di:
+                if key not in self.state:
+                    self.state[key] = []
+                self.state[key].append(di[key])
 
-            if self.dim == 0:
-                keys = ds_view[-1].keys()
-                results = ls.DataItem(
-                    {key: self.calculate(np.array(ds_view.key_to_list(key), dtype=float)) for key in keys}
-                )
-                self.output(results)
+            results = ls.DataItem({key: self.calculate(np.array(self.state[key], dtype=float)) for key in di})
+            self.output(results)
 
-            elif self.dim == 1:
-                values = np.array(list(ds_view[-1].values()), dtype=float)
-                result = self.calculate(values)
-                if isinstance(result, dict):
-                    self.output(ls.DataItem(result))
-                else:
-                    out = ls.DataItem({self.stat_name: result})
-                    self.output(out)
+        if self.dim == 1:
+            values = np.array(list(di.values()), dtype=float)
+            result = self.calculate(values)
 
-            else:
-                msg = f"Unknown dimension {self.dim}"
-                raise ValueError(msg)
+            if isinstance(result, dict):
+                return ls.DataItem(result)
 
-            self._latency_queue.toc()
+            return ls.DataItem({self.stat_name: result})
+
+        msg = f"Unknown dimension {self.dim}"
+        raise ValueError(msg)
 
 
 class Sum(ls.FunctionTerm):
     """Computes cumulative sum of `key` over data items."""
 
-    def __init__(self, *args, key: str, **kwargs):
+    def __init__(self, *args, key: str, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.key = key
         self.state["value"] = 0.0  # initially, sum is 0
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
+        """Run on new data."""
         self.state["value"] += item[self.key]
         return ls.DataItem({"sum": self.state["value"]})
 
@@ -64,11 +71,13 @@ class Sum(ls.FunctionTerm):
 class Mean(BaseStatistic):
     """Computes mean per data item."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.stat_name = "mean"
 
     def calculate(self, values: np.ndarray) -> float:
+        """Perform the calculation of the statistics."""
         mean = np.mean(values)
         return float(mean)
 
@@ -76,11 +85,13 @@ class Mean(BaseStatistic):
 class Std(BaseStatistic):
     """Computes standard deviation per data item."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.stat_name = "std"
 
     def calculate(self, values: np.ndarray) -> float:
+        """Perform the calculation of the statistics."""
         std = np.std(values)
         return float(std)
 
@@ -95,11 +106,13 @@ class StdHull(BaseStatistic):
 
     factor: float
 
-    def __init__(self, *args, factor: float = 1.0, **kwargs) -> None:
+    def __init__(self, *args, factor: float = 1.0, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.factor = factor
 
     def calculate(self, values: np.ndarray) -> dict[str, Any]:
+        """Perform the calculation of the statistics."""
         mean = np.mean(values)
         std = np.std(values)
         lower_bound = mean - self.factor * std
@@ -114,52 +127,61 @@ class TestStatistic(ls.FunctionTerm):
     dim: int
     stat_name: str
 
-    def __init__(self, *args, dim: int = 1, **kwargs) -> None:
+    state: ls.State
+
+    def __init__(self, *args, dim: int = 1, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
+
         self.arity = None
         self.dim = dim
 
-    def calculate(self, *args, **kwargs):
+        self.state = {}
+
+    def calculate(self, *args, **kwargs) -> Any:  # noqa: ANN002, ANN003, ANN401
+        """Perform the calculation of the statistics."""
         raise NotImplementedError
 
-    def run(self, ds_view: ls.DataStreamView):
-        while True:
-            ds_view.next()
-            self._latency_queue.tic()
-
-            if self.dim == 0:
-                keys = ds_view[-1].keys()
-                if self.arity is not None and len(ds_view[-1]) != self.arity:
-                    msg = f"Arity of test statistic does not match number of inputs {len(ds_view[-1])}"
-                    raise ValueError(msg)
-                series_list = [np.array(ds_view.key_to_list(key), dtype=float) for key in keys]
-                result = self.calculate(*series_list)
-                self.output(ls.DataItem(result))
-
-            elif self.dim == 1:
-                if self.arity != 1:
-                    msg = f"Arity of test statistic is {self.arity} but should be 1"
-                    raise ValueError(msg)
-                values = np.array(list(ds_view[-1].values()), dtype=float)
-                result = self.calculate(values)
-                self.output(ls.DataItem(result))
-
-            else:
-                msg = f"Unknown dimension {self.dim}"
+    def f(self, di: ls.DataItem) -> ls.DataItem:
+        """Collect data and calculate the statistics."""
+        if self.dim == 0:
+            if self.arity is not None and len(di) != self.arity:
+                msg = f"Arity of test statistic does not match number of inputs {len(di)}"
                 raise ValueError(msg)
 
-            self._latency_queue.toc()
+            for key in di:
+                if key not in self.state:
+                    self.state[key] = []
+                self.state[key].append(di[key])
+
+            series_list = [np.array(self.state[key], dtype=float) for key in di]
+
+            result = self.calculate(*series_list)
+            return ls.DataItem(result)
+
+        if self.dim == 1:
+            if self.arity != 1:
+                msg = f"Arity of test statistic is {self.arity} but should be 1"
+                raise ValueError(msg)
+            values = np.array(list(di.values()), dtype=float)
+            result = self.calculate(values)
+            return ls.DataItem(result)
+
+        msg = f"Unknown dimension {self.dim}"
+        raise ValueError(msg)
 
 
 class OneSampleTTest(TestStatistic):
-    """Performs t-Test."""
+    """Performs a t-Test."""
 
-    def __init__(self, *args, mean: float = 0.0, **kwargs) -> None:
+    def __init__(self, *args, mean: float = 0.0, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.arity = 1
         self.mean = mean
 
     def calculate(self, values: np.ndarray) -> dict[str, Any]:
+        """Perform the calculation of the statistics."""
         if len(values) <= 1:
             return {"t-statistic": None, "p-value": None}
         t_statistic, p_value = scipy.stats.ttest_1samp(values, self.mean)
@@ -169,12 +191,14 @@ class OneSampleTTest(TestStatistic):
 class PairedTTest(TestStatistic):
     """Performs paired t-Test."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.arity = 2
         self.dim = 0
 
     def calculate(self, series1: np.ndarray, series2: np.ndarray) -> dict[str, Any]:
+        """Perform the calculation of the statistics."""
         if len(series1) <= 1 or len(series2) <= 1:
             return {"t-statistic": None, "p-value": None}
         t_statistic, p_value = scipy.stats.ttest_rel(series1, series2)
@@ -184,12 +208,14 @@ class PairedTTest(TestStatistic):
 class KruskalWallis(TestStatistic):
     """Performs Kruskal-Wallis-Test."""
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create an instance."""
         super().__init__(*args, **kwargs)
         self.arity = None
         self.dim = 0
 
     def calculate(self, *series: np.ndarray) -> dict[str, Any]:
+        """Perform the calculation of the statistics."""
         if any(len(s) <= 1 for s in series):
             return {"h-statistic": None, "p-value": None}
 

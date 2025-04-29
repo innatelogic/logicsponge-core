@@ -1,3 +1,5 @@
+"""Dashboards for logicsponge."""
+
 import logging
 import math
 from collections.abc import Callable
@@ -20,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 class PlotParams(TypedDict):
+    """Plot parameters."""
+
     x: list[float]
     y: list[float]
     args: list
@@ -27,7 +31,7 @@ class PlotParams(TypedDict):
 
 
 class Plot(ls.FunctionTerm):
-    """plot data items
+    """Plot data items.
 
     typical uses are:
     - Plot(x='a', y=['b', 'c'])
@@ -44,9 +48,15 @@ class Plot(ls.FunctionTerm):
     incremental: bool
 
     def __init__(
-        self, *argv, x: str = "round", y: str | list[str] | None = None, incremental: bool = True, **argk
+        self,
+        *args,  # noqa: ANN002
+        x: str = "round",
+        y: str | list[str] | None = None,
+        incremental: bool = True,
+        **kwargs,  # noqa: ANN003
     ) -> None:
-        super().__init__(*argv, **argk)
+        """Create a Plot object."""
+        super().__init__(*args, **kwargs)
         self.state = {
             "x": [],
             "y": {},
@@ -81,6 +91,7 @@ class Plot(ls.FunctionTerm):
         self.ax.set_title(self.name)
 
     def plot(self, item: ls.DataItem) -> None:
+        """Plot the new item."""
         to_plot = item["plot"]
         self._axis_setup(to_plot)
 
@@ -126,6 +137,7 @@ class Plot(ls.FunctionTerm):
         self.fig.canvas.draw_idle()
 
     def add_data(self, item: ls.DataItem) -> None:
+        """Add data to the plot."""
         if len(self.state["x"]) == 0:
             # first plot
             self._axis_setup(item)
@@ -172,6 +184,7 @@ class Plot(ls.FunctionTerm):
         self.fig.canvas.draw_idle()
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
+        """Run on new data item."""
         if self.incremental:
             self.add_data(item)
         else:
@@ -180,12 +193,15 @@ class Plot(ls.FunctionTerm):
 
 
 class DeepPlot(ls.FunctionTerm):
+    """A complete, non-iterative plot."""
+
     fig: matplotlib.figure.Figure | None
     ax: matplotlib.axes.Axes | None
     then_fun: Callable[[Self, ls.DataItem], None] | None
 
-    def __init__(self, *argv, **argk) -> None:
-        super().__init__(*argv, **argk)
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a DeepPlot object."""
+        super().__init__(*args, **kwargs)
         self.lines = {}
         self.fig, self.ax = plt.subplots()
 
@@ -208,6 +224,7 @@ class DeepPlot(ls.FunctionTerm):
                     self._call_plot_dicts(d[k])
 
     def plot(self, params: PlotParams) -> None:
+        """Make the plot."""
         self._axis_setup(params)
 
         # draw
@@ -229,13 +246,14 @@ class DeepPlot(ls.FunctionTerm):
         y = params["y"]
 
         x = params["x"] if "x" in params else range(len(y))
-        args = params["args"] if "args" in params else []
-        kwargs = params["kwargs"] if "kwargs" in params else {}
+        args = params.get("args", [])
+        kwargs = params.get("kwargs", {})
 
         self.ax.plot(x, y, *args, **kwargs)
         self.fig.canvas.draw_idle()
 
     def f(self, item: ls.DataItem) -> ls.DataItem:
+        """Run f on new data item."""
         # potentially clear the axis
         if self.ax is not None:
             self.ax.clear()
@@ -251,12 +269,13 @@ class DeepPlot(ls.FunctionTerm):
         return item
 
     def then(self, fun: Callable[[Self, ls.DataItem], None]) -> Self:
-        """run a function after the plotting"""
+        """Run a function after the plotting."""
         self.then_fun = fun
         return self
 
 
 def is_finite(num: float | np.number) -> bool:
+    """Return if num is a finite number."""
     # try:
     return not (math.isnan(num) or math.isinf(num))
     # except Exception as e:
