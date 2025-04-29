@@ -1256,6 +1256,12 @@ class FunctionTerm(Term):
             msg = "should not happen"
             raise ValueError(msg)
 
+        # set history bound if run wasn't overwritten
+        annotations_f = get_annotations(self, "f")
+        if annotations_f:
+            for dsv in self._inputs.values():
+                dsv._ds.set_history_bound(NumberBound(1))  # noqa: SLF001
+
         # check if no thread is already running
         if self._thread is None:
             # create a new thread
