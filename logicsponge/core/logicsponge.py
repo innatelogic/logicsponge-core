@@ -8,7 +8,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Hashable, Iterator
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import Enum
 from functools import reduce
 from typing import Any, Self, TypedDict, TypeVar, overload
@@ -71,14 +71,18 @@ class LatencyQueue:
 
         To be used with a successive toc().
         """
-        self.tic_time = datetime.now(UTC).timestamp()
+        # self.tic_time = datetime.now(UTC).timestamp()
+        # make this faster via:
+        self.tic_time = time.time()
 
     def toc(self) -> None:
         """Stop a latency measurement.
 
         Call after a corresponding tic().
         """
-        toc_time = datetime.now(UTC).timestamp()
+        # toc_time = datetime.now(UTC).timestamp()
+        # make this faster via:
+        toc_time = time.time()
         if self.tic_time is None:
             msg = "need to tic first"
             raise ValueError(msg)
@@ -95,7 +99,9 @@ class LatencyQueue:
         """
         latencies = list(self.queue)
         if self.tic_time is not None:
-            current_latency = datetime.now(UTC).timestamp() - self.tic_time
+            # current_latency = datetime.now(UTC).timestamp() - self.tic_time
+            # faster via:
+            current_latency = time.time() - self.tic_time
             latencies += [current_latency]
         if not latencies:
             return float("nan")
@@ -111,7 +117,9 @@ class LatencyQueue:
         """
         latencies = list(self.queue)
         if self.tic_time is not None:
-            current_latency = datetime.now(UTC).timestamp() - self.tic_time
+            # current_latency = datetime.now(UTC).timestamp() - self.tic_time
+            # faster via:
+            current_latency = time.time() - self.tic_time
             latencies += [current_latency]
         if not latencies:
             return float("nan")
@@ -212,7 +220,9 @@ class DataItem:
 
         """
         with self._lock.gen_wlock():
-            self._time = datetime.now(UTC).timestamp()
+            # self._time = datetime.now(UTC).timestamp()
+            # make faster via:
+            self._time = time.time()
         return self
 
     def copy(self) -> "DataItem":
