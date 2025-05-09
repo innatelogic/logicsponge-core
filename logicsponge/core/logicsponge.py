@@ -11,7 +11,7 @@ from collections.abc import Callable, Hashable, Iterator
 from datetime import datetime
 from enum import Enum
 from functools import reduce
-from typing import Any, Self, TypedDict, TypeVar, overload
+from typing import Any, Generic, Self, TypedDict, TypeVar, overload
 
 from frozendict import frozendict
 from readerwriterlock import rwlock
@@ -126,7 +126,10 @@ class LatencyQueue:
         return max(latencies)
 
 
-class DataItem:
+DataItemT = TypeVar("DataItemT")
+
+
+class DataItem(Generic[DataItemT]):
     """Encapsulates a collection of key/value data pairs, together with associated metadata.
 
     Contains methods to keep track of timing and control data. The implementation is thread-safe.
@@ -225,7 +228,7 @@ class DataItem:
             self._time = time.time()
         return self
 
-    def copy(self) -> "DataItem":
+    def copy(self) -> "DataItem[DataItemT]":
         """Copy the current DataItem with the current time as metadata.
 
         Returns:
