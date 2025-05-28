@@ -1,0 +1,24 @@
+[package]
+name = "logicsponge_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "logicsponge_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.25.0", features = ["extension-module"] }
+delegate = "0.13.3"
+
+[package.metadata.maturin]
+include = ["src/logicsponge_core.pyi"]
+
+[dev-dependencies]
+criterion = { version = "0.6", features = ["html_reports"] }
+crossbeam = "0.8.4"
+flume = "0.11.1"
+
+[[bench]]
+name = "channel_benchmark"
+harness = false
