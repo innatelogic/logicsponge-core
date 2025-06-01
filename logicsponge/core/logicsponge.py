@@ -30,6 +30,8 @@ logging.basicConfig(
 # InT = TypeVar('InT')
 # OutT = TypeVar('OutT')
 
+IOType = tuple[TypedDict] | dict[str, TypedDict] | Any | None
+
 
 # end of stream
 class Control(Enum):
@@ -870,6 +872,10 @@ class Term(ABC):
     def __str__(self) -> str:
         """Return a str representation."""
         return f"Term({self.name})"
+
+    def promise_type(self, in_type: IOType = Any) -> IOType:  # noqa: ARG002
+        """Given a potential input type 'in_type', return the promised output type."""
+        return Any
 
 
 class SourceTerm(Term):
