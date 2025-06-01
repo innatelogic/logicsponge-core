@@ -27,6 +27,9 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
+# InT = TypeVar('InT')
+# OutT = TypeVar('OutT')
+
 
 # end of stream
 class Control(Enum):
@@ -1669,7 +1672,7 @@ class KeyValueFilter(FunctionTerm):
 
         """
         if key_value_filter is None and len(args) > 0 and has_callable_signature(args[0], (str, Any), bool):
-            key_value_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
+            key_value_filter = args[0]  # type: ignore # reportAssignmentType  # we check the signature above # noqa: PGH003
             name = str(args[0])
             args = (name,) + args[1:]
 
@@ -1697,7 +1700,7 @@ class DataItemFilter(FunctionTerm):
         Filter to be applied to each key-value pair in data item.
         """
         if data_item_filter is None and len(args) > 0 and has_callable_signature(args[0], (Any,), bool):
-            data_item_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
+            data_item_filter = args[0]  # type: ignore # reportAssignmentType  # we check the signature above # noqa: PGH003
             name = str(args[0])
             args = (name,) + args[1:]
 
