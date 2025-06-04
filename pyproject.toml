@@ -49,17 +49,6 @@ python-source = "python"
 module-name = "logicsponge.core_rs"
 include = ["python/logicsponge/core_rs.pyi"]
 
-[tool.pyright]
-venvPath = "."
-venv = "venv"
-typeCheckingMode = "standard"
-reportGeneralTypeIssues = true
-reportOptionalSubscript = true
-# reportUnknownParameterType = true
-# reportUnknownVariableType = true
-reportUninitializedVariable = true
-reportUnusedVariable = true
-
 [tool.ruff]
 line-length = 120
 lint.select = ["ALL"]
