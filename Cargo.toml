@@ -1,15 +1,21 @@
 [package]
-name = "logicsponge_core"
+name = "core_rs"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "logicsponge_core"
+name = "core_rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.25.0", features = ["extension-module"] }
 delegate = "0.13.3"
+
+[dependencies.pyo3]
+version = "0.25.0"
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]
 
 [package.metadata.maturin]
 include = ["src/logicsponge_core.pyi"]

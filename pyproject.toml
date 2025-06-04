@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs", "hatch-requirements-txt"]
-build-backend = "hatchling.build"
+requires = ["maturin"]
+build-backend = "maturin"
 
 [project]
 name = "logicsponge-core"
-dynamic = ["version", "dependencies"]
+dynamic = ["version"]
 requires-python = ">=3.11"
 authors = [
   { name = "Benedikt Bollig", email = "bollig@lmf.cnrs.fr" },
@@ -23,22 +23,30 @@ keywords = ["real-time", "data processing", "time series"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
+  "Programming Language :: Rust",
 ]
+dependencies = [
+  "frozendict",
+  "readerwriterlock",
+  "numpy",
+  "scipy",
+  "dash",
+  "dash-bootstrap-components",
+  "dash-svg",
+  "matplotlib",
+  "plotly",
+  "chardet",
+  "gdown",
+  "watchdog",
+]
+
 
 [project.urls]
 Repository = "https://github.com/innatelogic/logicsponge-core.git"
 
-[tool.hatch.metadata]
-core-metadata-version = "2.4"
-
-[tool.hatch.metadata.hooks.requirements_txt]
-files = ["requirements.txt"]
-
-[tool.hatch.version]
-source = "vcs"
-
-[tool.hatch.build.targets.wheel]
-packages = ["logicsponge"]
+[tool.maturin]
+python-source = "python"
+module-name = "logicsponge.core_rs"
 
 [tool.pyright]
 venvPath = "."

@@ -1,4 +1,5 @@
 hatch
+maturin
 pre-commit
 pyright
 pytest

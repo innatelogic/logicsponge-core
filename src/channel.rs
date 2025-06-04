@@ -61,6 +61,8 @@ pub enum HistoryPolicy {
     KeepAll,
     /// Keep only the last received message in the history.
     KeepNewest,
+    /// Keep no history at all.
+    KeepNone,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -69,12 +71,12 @@ pub enum HistoryError {
 }
 
 pub struct Sender<T> {
-    tx_cb: mpsc::Sender<T>,
+    inner: mpsc::Sender<T>,
 }
 
 impl<T> Sender<T> {
     delegate! {
-        to self.tx_cb {
+        to self.inner {
             pub fn send(&self, msg: T) -> Result<(), SendError<T>>;
         }
     }
@@ -83,10 +85,11 @@ impl<T> Sender<T> {
 enum History<T> {
     Full(VecDeque<T>),
     Newest(Option<T>),
+    None,
 }
 
 pub struct Receiver<T> {
-    rx_cb: mpsc::Receiver<T>,
+    inner: mpsc::Receiver<T>,
     history: RefCell<History<T>>,
 }
 
@@ -95,9 +98,9 @@ impl<T> Receiver<T> {
     where
         T: Clone,
     {
-        let res = self.rx_cb.try_recv();
+        let res = self.inner.try_recv();
         if let Ok(ref msg) = res {
-            self.update_history(msg.clone());
+            self.update_history(msg);
         }
         res
     }
@@ -106,9 +109,9 @@ impl<T> Receiver<T> {
     where
         T: Clone,
     {
-        let res = self.rx_cb.recv();
+        let res = self.inner.recv();
         if let Ok(ref msg) = res {
-            self.update_history(msg.clone());
+            self.update_history(msg);
         }
         res
     }
@@ -136,11 +139,15 @@ impl<T> Receiver<T> {
         Err(HistoryError::Empty)
     }
 
-    fn update_history(&self, msg: T) {
+    fn update_history(&self, msg: &T)
+    where
+        T: Clone,
+    {
         let mut hist = self.history.borrow_mut();
         match &mut *hist {
-            History::Full(queue) => queue.push_back(msg),
-            History::Newest(slot) => *slot = Some(msg),
+            History::Full(queue) => queue.push_back(msg.clone()),
+            History::Newest(slot) => *slot = Some(msg.clone()),
+            History::None => {}
         }
     }
 }
@@ -153,16 +160,21 @@ pub fn forgetful<T>() -> (Sender<T>, Receiver<T>) {
     channel_with_policy::<T>(HistoryPolicy::KeepNewest)
 }
 
+pub fn oblivious<T>() -> (Sender<T>, Receiver<T>) {
+    channel_with_policy::<T>(HistoryPolicy::KeepNone)
+}
+
 /// Constructs a (`Sender`, `Receiver`) pair of a new channel.
 pub fn channel_with_policy<T>(policy: HistoryPolicy) -> (Sender<T>, Receiver<T>) {
-    let (tx_cb, rx_cb) = mpsc::channel::<T>();
+    let (tx_inner, rx_inner) = mpsc::channel::<T>();
     (
-        Sender { tx_cb },
+        Sender { inner: tx_inner },
         Receiver {
-            rx_cb,
+            inner: rx_inner,
             history: RefCell::new(match policy {
                 HistoryPolicy::KeepAll => History::Full(VecDeque::new()),
                 HistoryPolicy::KeepNewest => History::Newest(None),
+                HistoryPolicy::KeepNone => History::None,
             }),
         },
     )
@@ -397,5 +409,34 @@ mod tests {
 
         assert_eq!(rx.history(0), Ok(43));
         assert_eq!(rx.history(1), Err(HistoryError::Empty));
+    }
+
+    #[test]
+    fn history_one_keepnone() {
+        let (tx, rx) = oblivious();
+
+        tx.send(42).unwrap();
+
+        assert_eq!(rx.recv(), Ok(42));
+        assert!(rx.try_recv().is_err());
+
+        assert_eq!(rx.history(0), Err(HistoryError::Empty));
+        assert_eq!(rx.history(1), Err(HistoryError::Empty));
+    }
+
+    #[test]
+    fn history_two_keepnone() {
+        let (tx, rx) = oblivious();
+
+        tx.send(42).unwrap();
+        tx.send(43).unwrap();
+
+        assert_eq!(rx.recv(), Ok(42));
+        assert_eq!(rx.recv(), Ok(43));
+        assert!(rx.try_recv().is_err());
+
+        assert_eq!(rx.history(0), Err(HistoryError::Empty));
+        assert_eq!(rx.history(1), Err(HistoryError::Empty));
+        assert_eq!(rx.history(2), Err(HistoryError::Empty));
     }
 }
