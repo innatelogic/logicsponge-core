@@ -19,7 +19,7 @@ extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
 
 [package.metadata.maturin]
-include = ["src/logicsponge_core.pyi"]
+include = ["python/logicsponge/core_rs.pyi"]
 
 [dev-dependencies]
 criterion = { version = "0.6", features = ["html_reports"] }

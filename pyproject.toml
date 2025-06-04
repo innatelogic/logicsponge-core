@@ -47,6 +47,7 @@ Repository = "https://github.com/innatelogic/logicsponge-core.git"
 [tool.maturin]
 python-source = "python"
 module-name = "logicsponge.core_rs"
+include = ["python/logicsponge/core_rs.pyi"]
 
 [tool.pyright]
 venvPath = "."
