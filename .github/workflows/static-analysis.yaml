@@ -17,9 +17,9 @@ jobs:
         with:
           args: "format --check"
       - run: |
-          pip install pdm pytest
           python -m venv venv
           . venv/bin/activate
+          pip install pdm pytest
           pdm install
           echo "$PWD/venv/bin" >> $GITHUB_PATH
       - uses: jakebailey/pyright-action@v2
