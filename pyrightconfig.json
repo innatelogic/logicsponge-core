@@ -1,0 +1,10 @@
+{
+    "extraPaths": ["python/logicsponge"],
+    "venvPath": ".",
+    "venv": "venv",
+    "typeCheckingMode": "standard",
+    "reportGeneralTypeIssues": true,
+    "reportOptionalSubscript": true,
+    "reportUninitializedVariable": true,
+    "reportUnusedVariable": true
+}
