@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  static-analysis:
+  static-analysis-python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,4 +26,14 @@ jobs:
           python --version
       - run: echo "$PWD/venv/bin" >> $GITHUB_PATH
       - uses: jakebailey/pyright-action@v2
-      - uses: quernal/github-actions-rust-clippy@v2.0.2
+
+  static-analysis-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings

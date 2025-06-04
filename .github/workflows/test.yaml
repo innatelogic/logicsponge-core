@@ -1,7 +1,7 @@
 name: tests
 on: push
 jobs:
-  test:
+  test-python:
     name: test with ${{ matrix.py }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -16,7 +16,8 @@ jobs:
           - macos-latest
           - windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Fetch sources
+        uses: actions/checkout@v4
 
       - name: Install Python
         uses: actions/setup-python@v5
@@ -35,6 +36,12 @@ jobs:
       - name: Test with tox
         run: tox
 
+  test-rust:
+    name: Cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch sources
+        uses: actions/checkout@v4
       - name: Run cargo tests
         uses: frequenz-floss/gh-action-cargo-test@v1.0.0
         with:
