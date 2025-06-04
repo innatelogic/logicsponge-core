@@ -15,9 +15,8 @@ from typing import Any, Self, TypedDict, TypeVar, overload
 
 from frozendict import frozendict
 from readerwriterlock import rwlock
-from typing_extensions import override
 
-from logicsponge.core.datastructures import SharedQueue, SharedQueueView
+from logicsponge.core_rs import Receiver, Sender, make_channel
 
 # logging
 logger = logging.getLogger(__name__)
@@ -403,54 +402,6 @@ class HistoryBound(ABC):
         """
 
 
-class NoneBound(HistoryBound):
-    """Marks no DataItems for deletion."""
-
-    @override
-    def items_to_drop(self, ds: "DataStream") -> int:
-        """Calculate a bound on the DataStream history before which DataItems may be dropped.
-
-        Args:
-            ds: stream to be considered
-
-        Returns:
-            int: Always 0 (don't drop any items).
-
-        """
-        return 0
-
-
-class NumberBound(HistoryBound):
-    """Marks all but the n newest DataItems for deletion."""
-
-    _n: int
-
-    def __init__(self, n: int) -> None:
-        """Construct a new NumberBound with a given value of n.
-
-        Args:
-            n: The length of the history to keep.
-
-        """
-        self._n = n
-
-    @override
-    def items_to_drop(self, ds: "DataStream") -> int:
-        """Calculate a bound on the DataStream history before which DataItems may be dropped.
-
-        Args:
-            ds: stream to be considered
-
-        Returns:
-            int: The number of items to drop, i.e., max(0, len - n) where len is the length of the DataStream.
-
-        """
-        length = ds.len_until_first_cursor()
-        if self._n <= length:
-            return length - self._n
-        return 0
-
-
 class DataStream:
     """Represents a data stream, i.e., a sequence of DataItem, with associated metadata.
 
@@ -460,11 +411,10 @@ class DataStream:
     _id: str | None
     _owner: "Term"
 
-    _data: SharedQueue[DataItem]
-    _lock: rwlock.RWLockFair
+    _channel_txs: list[Sender]
+    _loopback: "DataStreamView"
 
-    _history_bound: HistoryBound
-    _history_lock: threading.Lock
+    _lock: rwlock.RWLockFair
 
     _new_data_callbacks: list[Callable[[DataItem], None]]
 
@@ -478,14 +428,10 @@ class DataStream:
         """
         self._id = None
         self._owner = owner
-
-        self._data = SharedQueue()
+        self._channel_txs = []
         self._lock = rwlock.RWLockFair()
-
-        self._history_bound = NoneBound()
-        self._history_lock = threading.Lock()
-
         self._new_data_callbacks = []
+        self._loopback = DataStreamView(self, self._owner)
 
     def _set_id(self, new_id: str) -> Self:
         """Set ID of the DataStream.
@@ -511,15 +457,20 @@ class DataStream:
         with self._lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
             return self.id
 
-    def __len__(self) -> int:
-        """Calculate the length of the DataStream, i.e., the number of DataItems.
+    def __str__(self) -> str:
+        """Construct a string description of the DataStream.
 
         Returns:
-            The number of DataItems in the DataStream.
+            A string of the format "DataStream(id={id}): [{data_items}]" where {id} is the DataStream's ID
+                and {data_items} are the DataItems.
 
         """
-        # SAFETY: From safety of SharedQueue.__len__.
-        return len(self._data)
+        # SAFETY: Use of _lock for ID
+        with self._lock.gen_rlock():
+            return f"DataStream(id={self.get_id()}): {self.to_list()}"
+
+    def __len__(self) -> int:
+        return len(self._loopback)
 
     @overload
     def __getitem__(self, index: int) -> DataItem: ...
@@ -540,23 +491,10 @@ class DataStream:
             IndexError: If index is invalid.
 
         """
-        # SAFETY: From safety of SharedQueue.__getitem__.
-        try:
-            return self._data[index]
-        except IndexError as e:
-            raise IndexError from e
+        return self._loopback[index]
 
-    def __str__(self) -> str:
-        """Construct a string description of the DataStream.
-
-        Returns:
-            A string of the format "DataStream(id={id}): [{data_items}]" where {id} is the DataStream's ID
-                and {data_items} are the DataItems.
-
-        """
-        # SAFETY: Use of _lock for ID and from safety of SharedQueue.__len__.
-        with self._lock.gen_rlock():
-            return f"DataStream(id={self.get_id()}): {self._data.to_list()}"
+    def to_list(self) -> list[DataItem]:
+        return self._loopback.to_list()
 
     def append(self, di: DataItem) -> Self:
         """Append a data item to the end of the DataStream.
@@ -568,81 +506,23 @@ class DataStream:
             The DataStream after appending the DataItem.
 
         """
-        # SAFETY: From safety of SharedQueue.append and clean_history.
-        with (
-            self._history_lock
-        ):  # LIVENESS: Doesn't request another lock from DataStream, thus follows from liveness of SharedQueue.append.
-            self._data.append(di)
-        self.clean_history()
+        for tx in self._channel_txs:
+            tx.send(di)
+            self._loopback.next()
         for fun in self._new_data_callbacks:
             fun(di)
         return self
 
-    def set_history_bound(self, history_bound: HistoryBound) -> Self:
-        """Set the history bounds of the DataStream.
-
-        Args:
-            history_bound: The HistoryBound to be set.
+    def _create_receiver(self) -> Receiver:
+        """Create a new Receiver for the DataStream.
 
         Returns:
-            The DataStream after setting the history bound.
+            The new Receiver.
 
         """
-        with self._lock.gen_wlock():  # LIVENESS: Doesn't request another lock.
-            self._history_bound = history_bound
-        self.clean_history()
-        return self
-
-    def clean_history(self) -> Self:
-        """Drop DataItems according to the current history bound.
-
-        If another call to clean_history or a call to append is currently running, returns without modification.
-
-        Returns:
-            The DataStream after dropping the DataItems.
-
-        """
-        # SAFETY: Use of mutex disallows concurrent modification of the SharedQueue.
-        #         The value of cnt is thus consistent with the number of items to be dropped.
-        have_lock = self._history_lock.acquire(blocking=False)  # LIVENESS: nonblocking
-        if not have_lock:
-            return self
-        try:
-            cnt = self._history_bound.items_to_drop(self)
-            self._data.drop_front(cnt=cnt)
-        finally:
-            self._history_lock.release()
-        return self
-
-    def to_list(self) -> list[DataItem]:
-        """Construct a list of all DataItems of the DataStream.
-
-        Returns:
-            The list of DataItems.
-
-        """
-        # SAFETY: From safety of SharedQueue.to_list.
-        return self._data.to_list()
-
-    def _create_queue_view(self) -> SharedQueueView[DataItem]:
-        """Create a new associated SharedQueueView to the underlying SharedQueue.
-
-        Returns:
-            The new SharedQueueView.
-
-        """
-        # SAFETY: From safety of SharedQueue.create_view.
-        return self._data.create_view()
-
-    def len_until_first_cursor(self) -> int:
-        """Calculate the length of the DataStream until the first cursor position of a associated SharedQueueView.
-
-        Returns:
-            The length until the first cursor.
-
-        """
-        # SAFETY: From safety of SharedQueue.len_until_first_cursor
-        return self._data.len_until_first_cursor()
+        tx, rx = make_channel()
+        self._channel_txs.append(tx)
+        return rx
 
     def register_new_data_callback(self, callback: Callable[[DataItem], None]) -> None:
         """Register a "new data" callback function for the DataStream.
@@ -655,6 +535,64 @@ class DataStream:
             self._new_data_callbacks.append(callback)
 
 
+class LazyReceiver:
+    """A lazy encapsuation of Receiver.
+
+    Constructs the receiver at the first method access.
+    """
+
+    _ds: DataStream
+    _receiver: Receiver | None
+
+    def __init__(self, ds: DataStream) -> None:
+        self._ds = ds
+        self._receiver = None
+
+    def _construct(self) -> None:
+        if self._receiver is None:
+            self._receiver = self._ds._create_receiver()  # noqa: SLF001
+
+    def recv(self) -> DataItem:
+        if self._receiver is None:
+            self._receiver = self._ds._create_receiver()  # noqa: SLF001
+
+        if self._receiver is None:
+            msg = "Unreachable code"
+            raise AssertionError(msg)
+
+        return self._receiver.recv()
+
+    def history(self, index: int) -> DataItem:
+        if self._receiver is None:
+            self._receiver = self._ds._create_receiver()  # noqa: SLF001
+
+        if self._receiver is None:
+            msg = "Unreachable code"
+            raise AssertionError(msg)
+
+        return self._receiver.history(index)
+
+    def __len__(self) -> int:
+        if self._receiver is None:
+            self._receiver = self._ds._create_receiver()  # noqa: SLF001
+
+        if self._receiver is None:
+            msg = "Unreachable code"
+            raise AssertionError(msg)
+
+        return len(self._receiver)
+
+    def to_list(self) -> list[DataItem]:
+        if self._receiver is None:
+            self._receiver = self._ds._create_receiver()  # noqa: SLF001
+
+        if self._receiver is None:
+            msg = "Unreachable code"
+            raise AssertionError(msg)
+
+        return self._receiver.to_list()
+
+
 class DataStreamView:
     """Represents a view into a data stream, i.e., a prefix of the DataStream, with associated metadata.
 
@@ -665,7 +603,7 @@ class DataStreamView:
     _owner: "Term"
 
     _ds: DataStream
-    _view: SharedQueueView
+    _receiver: LazyReceiver
 
     _lock: rwlock.RWLockFair
 
@@ -673,7 +611,7 @@ class DataStreamView:
         """Initialize a new DataStreamView.
 
         Args:
-            ds: The DataStream to which
+            ds: The DataStream to which it is a view into.
             owner: The Term that owns the DataStream. Usually the Term whose output stream we're initializing.
                 Potentially used for persistence features.
 
@@ -682,7 +620,7 @@ class DataStreamView:
         self._owner = owner
 
         self._ds = ds
-        self._view = ds._create_queue_view()  # noqa: SLF001
+        self._receiver = LazyReceiver(ds)
 
         self._lock = rwlock.RWLockFair()
 
@@ -711,14 +649,13 @@ class DataStreamView:
             return self._id
 
     def __len__(self) -> int:
-        """Calculate the length of the DataStreamView, i.e., the number of DataItems until its cursor.
+        """Calculate the length of the DataStreamView.
 
         Returns:
-            The number of DataItems in the underlying DataStream until the DataStreamView's cursor.
+            The number of DataItems in the DataStreamView.
 
         """
-        # SAFETY: From safety of SharedQueueView.__len__.
-        return len(self._view)
+        return len(self._receiver)
 
     @overload
     def __getitem__(self, index: int) -> DataItem: ...
@@ -739,11 +676,19 @@ class DataStreamView:
             IndexError: If index is invalid.
 
         """
-        # SAFETY: From safety of SharedQueueView.__getitem__.
-        try:
-            return self._view[index]
-        except IndexError as e:
-            raise IndexError from e
+        if isinstance(index, int):
+            try:
+                if index < 0:
+                    return self._receiver.history(-index - 1)
+                if index < len(self._receiver):
+                    return self._receiver.history(len(self._receiver) - index - 1)
+            except IndexError as e:
+                raise IndexError from e
+            raise IndexError
+        raise NotImplementedError
+
+    def to_list(self) -> list[DataItem]:
+        return self._receiver.to_list()
 
     def __str__(self) -> str:
         """Construct a string description of the DataStreamView.
@@ -753,9 +698,9 @@ class DataStreamView:
                 and {data_items} are the DataItems.
 
         """
-        # SAFETY: Use of _lock for ID and from safety of SharedQueueView.to_list.
+        # SAFETY: Use of _lock for ID
         with self._lock.gen_rlock():
-            return f"DataStreamView(id={self.get_id()}): {self._view.to_list()}"
+            return f"DataStreamView(id={self.get_id()}): {self._receiver.to_list()}"
 
     def peek(self) -> bool:
         """Check whether a new DataItem is ready.
@@ -764,7 +709,7 @@ class DataStreamView:
             True iff a new DataItem is ready (i.e., a call to next will not block)
 
         """
-        return self._view.peek()
+        raise NotImplementedError
 
     def next(self) -> None:
         """Advance the DataStreamView's cursor by one DataItem.
@@ -772,8 +717,7 @@ class DataStreamView:
         Blocks if no item is available.
 
         """
-        # SAFETY: From safety of SharedQueueView.next.
-        self._view.next()
+        self._receiver.recv()
 
     def tail(self, n: int) -> list[DataItem]:
         """Return the tail."""
@@ -790,6 +734,9 @@ class DataStreamView:
             "read": self.pos,
             "write": len(self.ds),
         }
+
+    def prepare(self) -> None:
+        self._receiver._construct()
 
 
 class Term(ABC):
@@ -846,7 +793,7 @@ class Term(ABC):
         raise TypeError(msg)
 
     @abstractmethod
-    def start(self, *, persistent: bool = False) -> None:
+    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:
         """Start execution of the term."""
 
     @abstractmethod
@@ -902,12 +849,15 @@ class SourceTerm(Term):
     def exit(self) -> None:
         """Overwrite this function to clean up the source term's thread."""
 
-    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:  # noqa: ARG002
         """Start the source term's thread."""
         if not self.id:
             self._set_id("root")
 
         def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
+            if start_event is not None:
+                start_event.wait()
+
             self.enter()
             try:
                 self.run()
@@ -918,7 +868,11 @@ class SourceTerm(Term):
         # check if no thread is already running
         if self._thread is None:
             # create a new thread
-            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
+            self._thread = threading.Thread(
+                target=execute,
+                name=str(self),
+                args=(self._stop_event,),
+            )
             self._thread.start()
 
     def stop(self) -> None:
@@ -934,7 +888,9 @@ class SourceTerm(Term):
     def output(self, data: DataItem) -> None:
         """Output data."""
         data.set_time_to_now()
+        print("sending")
         self._output.append(data)
+        print("sent")
 
     def eos(self) -> None:
         """Signal an EOS (end of stream) for this source."""
@@ -1058,10 +1014,17 @@ class FunctionTerm(Term):
     def exit(self) -> None:
         """Overwrite this function to clean up the function term's thread."""
 
-    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002, C901, PLR0912, PLR0915
+    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:  # noqa: ARG002, C901, PLR0912, PLR0915
         """Start the function term's thread."""
         if not self.id:
             self._set_id("root")
+
+        def prepare() -> None:
+            if start_event is not None:
+                start_event.wait()
+
+            for dsv in self._inputs.values():
+                dsv.prepare()
 
         # different execute versions
         def execute_f_dataitem(stop_event: threading.Event) -> None:
@@ -1072,10 +1035,14 @@ class FunctionTerm(Term):
             if input_stream is None:
                 return
 
+            prepare()
+
             self.enter()
             try:
                 while not stop_event.is_set():
+                    print("receiving")
                     input_stream.next()
+                    print("received")
                     self._latency_queue.tic()
 
                     last_di = input_stream[-1]
@@ -1094,6 +1061,8 @@ class FunctionTerm(Term):
 
         def execute_f_tuple_dataitem(stop_event: threading.Event) -> None:
             inputs: list[DataStreamView] = list(self._inputs.values())
+
+            prepare()
 
             self.enter()
             try:
@@ -1119,6 +1088,8 @@ class FunctionTerm(Term):
         def execute_f_args_dataitem(stop_event: threading.Event) -> None:
             inputs: list[DataStreamView] = list(self._inputs.values())
 
+            prepare()
+
             self.enter()
             try:
                 while not stop_event.is_set():
@@ -1139,6 +1110,8 @@ class FunctionTerm(Term):
 
         def execute_f_dict_dataitem(stop_event: threading.Event) -> None:
             inputs: dict[str, DataStreamView] = self._inputs
+
+            prepare()
 
             self.enter()
             try:
@@ -1163,6 +1136,8 @@ class FunctionTerm(Term):
             if inputs is None:
                 return
 
+            prepare()
+
             self.enter()
             try:
                 self.run(inputs)
@@ -1172,6 +1147,8 @@ class FunctionTerm(Term):
 
         def execute_run_tuple_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs = tuple(self._inputs.values())
+
+            prepare()
 
             self.enter()
             try:
@@ -1183,6 +1160,8 @@ class FunctionTerm(Term):
         def execute_run_args_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs = tuple(self._inputs.values())
 
+            prepare()
+
             self.enter()
             try:
                 self.run(*inputs)
@@ -1192,6 +1171,8 @@ class FunctionTerm(Term):
 
         def execute_run_dict_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs: dict[str, DataStreamView] = self._inputs
+
+            prepare()
 
             self.enter()
             try:
@@ -1268,9 +1249,9 @@ class FunctionTerm(Term):
 
         # set history bound if run wasn't overwritten
         annotations_f = get_annotations(self, "f")
-        if annotations_f:
-            for dsv in self._inputs.values():
-                dsv._ds.set_history_bound(NumberBound(1))  # noqa: SLF001
+        #         if annotations_f:
+        #             for dsv in self._inputs.values():
+        #                 dsv._ds.set_history_bound(NumberBound(1))
 
         # check if no thread is already running
         if self._thread is None:
@@ -1348,7 +1329,7 @@ class DynamicSpawnTerm(Term):
         for name, ds in self._inputs.items():
             ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False) -> None:
+    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:
         """Start the Term."""
         if persistent:
             msg = "Persistence not implemented for DynamicSpawnTerms"
@@ -1358,6 +1339,9 @@ class DynamicSpawnTerm(Term):
             inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
             if inputs is None:
                 return
+
+            if start_event is not None:
+                start_event.wait()
 
             self.enter()
             try:
@@ -1463,13 +1447,21 @@ class CompositeTerm(Term):
         self.term_left._parent = self  # noqa: SLF001
         self.term_right._parent = self  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False) -> None:
+    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:
         """Start the Term."""
         if not self.id:
             self._set_id("root")
 
-        self.term_left.start(persistent=persistent)
-        self.term_right.start(persistent=persistent)
+        if start_event is None:
+            new_start_event = threading.Event()
+
+            self.term_left.start(persistent=persistent, start_event=new_start_event)
+            self.term_right.start(persistent=persistent, start_event=new_start_event)
+
+            new_start_event.set()
+        else:
+            self.term_left.start(persistent=persistent, start_event=start_event)
+            self.term_right.start(persistent=persistent, start_event=start_event)
 
     def stop(self) -> None:
         """Stop the Term."""
@@ -1545,7 +1537,7 @@ class Stop(Term):
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
 
-    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:  # noqa: ARG002
         """Start the Term."""
         if not self.id:
             self._set_id("root")

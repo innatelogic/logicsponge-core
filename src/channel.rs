@@ -116,6 +116,24 @@ impl<T> Receiver<T> {
         res
     }
 
+    pub fn is_empty(&self) -> bool {
+        match &*self.history.borrow() {
+            History::Full(queue) => queue.is_empty(),
+            History::Newest(None) => true,
+            History::Newest(Some(_)) => false,
+            History::None => true,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match &*self.history.borrow() {
+            History::Full(queue) => queue.len(),
+            History::Newest(None) => 0,
+            History::Newest(Some(_)) => 1,
+            History::None => 0,
+        }
+    }
+
     pub fn history(&self, index: usize) -> Result<T, HistoryError>
     where
         T: Clone,
@@ -137,6 +155,13 @@ impl<T> Receiver<T> {
         }
 
         Err(HistoryError::Empty)
+    }
+
+    pub fn to_list(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        (0..self.len()).map(|i| self.history(i).unwrap()).collect()
     }
 
     fn update_history(&self, msg: &T)
@@ -438,5 +463,14 @@ mod tests {
         assert_eq!(rx.history(0), Err(HistoryError::Empty));
         assert_eq!(rx.history(1), Err(HistoryError::Empty));
         assert_eq!(rx.history(2), Err(HistoryError::Empty));
+    }
+
+    #[test]
+    fn receiver_is_send() {
+        let (_tx, rx) = channel::<i32>();
+
+        std::thread::spawn(move || {
+            let _ = rx;
+        });
     }
 }

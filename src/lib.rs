@@ -1,6 +1,6 @@
 #![warn(clippy::all)]
 
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyIndexError, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::PyObject;
 
@@ -63,6 +63,25 @@ impl Receiver {
             Ok(obj) => Ok(obj.into_inner()),
             Err(_error) => Err(PyRuntimeError::new_err("Channel disconnected")),
         }
+    }
+
+    pub fn __len__(&self) -> PyResult<usize> {
+        Ok(self.inner.len())
+    }
+
+    pub fn history(&self, index: usize) -> PyResult<PyObject> {
+        match self.inner.history(index) {
+            Ok(obj) => Ok(obj.into_inner()),
+            Err(_error) => Err(PyIndexError::new_err("Invalid index")),
+        }
+    }
+
+    pub fn to_list(&self) -> Vec<PyObject> {
+        self.inner
+            .to_list()
+            .into_iter()
+            .map(|obj| obj.into_inner())
+            .collect()
     }
 }
 

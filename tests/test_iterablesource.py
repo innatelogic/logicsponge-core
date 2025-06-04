@@ -20,7 +20,9 @@ def test_list_int() -> None:
     res: list = []
 
     sponge = source * ls.Dump(print_fun=lambda x: res.append(x))
+    print("a")
     sponge.start()
+    print("b")
     sponge.join()
 
     assert res == expected_outputs
