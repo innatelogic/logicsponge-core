@@ -1,9 +1,7 @@
 name: static analysis
 
 on:
-  pull_request:
   push:
-    branches: [main]
 
 jobs:
   static-analysis-python:
