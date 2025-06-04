@@ -26,3 +26,4 @@ jobs:
           python --version
       - run: echo "$PWD/venv/bin" >> $GITHUB_PATH
       - uses: jakebailey/pyright-action@v2
+      - uses: quernal/github-actions-rust-clippy@v2.0.2

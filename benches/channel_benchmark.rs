@@ -1,5 +1,4 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use flume;
 use logicsponge_core::channel;
 use std::hint::black_box;
 use std::sync::mpsc;

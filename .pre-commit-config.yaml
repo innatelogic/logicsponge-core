@@ -11,3 +11,11 @@ repos:
     rev: v1.1.398
     hooks:
       - id: pyright
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: clippy
+  - repo: https://github.com/Artalus/pre-commit-clippy-fix
+    rev: v0.1
+    hooks:
+      - id: clippy-fix

@@ -34,3 +34,8 @@ jobs:
 
       - name: Test with tox
         run: tox
+
+      - name: Run cargo tests
+        uses: frequenz-floss/gh-action-cargo-test@v1.0.0
+        with:
+          cargo-test-parameters: --no-default-features
