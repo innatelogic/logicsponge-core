@@ -27,10 +27,10 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-# InT = TypeVar('InT')
-# OutT = TypeVar('OutT')
+InT = TypeVar("InT")
+OutT = TypeVar("OutT")
 
-IOType = TypedDict | tuple[TypedDict] | dict[str, TypedDict] | Any | None
+# IOType = TypedDict | tuple[TypedDict] | dict[str, TypedDict] | Any | None
 
 
 # end of stream
@@ -873,9 +873,9 @@ class Term(ABC):
         """Return a str representation."""
         return f"Term({self.name})"
 
-    def promise_type(self, in_type: IOType) -> IOType:  # noqa: ARG002
-        """Given a potential input type 'in_type', return the promised output type."""
-        return Any
+    # def promise_type(self, in_type) -> IOType:  # noqa: ARG002
+    #     """Given a potential input type 'in_type', return the promised output type."""
+    #     return Any
 
 
 class SourceTerm(Term):
@@ -1887,17 +1887,17 @@ class Id(FunctionTerm):
         """Create an Id object."""
         super().__init__(*args, **kwargs)
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, item: DataItem[InT]) -> DataItem[InT]:
         """Forward data."""
         return item
 
-    def promise_type(self, in_type: IOType) -> IOType:
-        """Given a potential input type 'in_type', return the promised output type."""
-        if isinstance(in_type, tuple) and len(in_type) > 0:
-            return in_type[0]
-        if isinstance(in_type, dict) and len(in_type) > 0:
-            return in_type[next(iter(in_type.keys()))]
-        return in_type
+    # def promise_type(self, in_type: IOType) -> IOType:
+    #     """Given a potential input type 'in_type', return the promised output type."""
+    #     if isinstance(in_type, tuple) and len(in_type) > 0:
+    #         return in_type[0]
+    #     if isinstance(in_type, dict) and len(in_type) > 0:
+    #         return in_type[next(iter(in_type.keys()))]
+    #     return in_type
 
 
 class EosFilter(Id):
