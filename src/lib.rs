@@ -2,7 +2,7 @@
 
 use pyo3::exceptions::{PyIndexError, PyRuntimeError};
 use pyo3::prelude::*;
-use pyo3::PyObject;
+use pyo3::{PyObject, Python};
 
 pub mod channel;
 
@@ -51,17 +51,28 @@ impl Sender {
     }
 }
 
-#[pyclass(unsendable)]
+#[pyclass]
 pub struct Receiver {
     inner: channel::Receiver<ClonePyObject>,
 }
 
 #[pymethods]
 impl Receiver {
-    pub fn recv(&self) -> PyResult<PyObject> {
-        match self.inner.recv() {
+    pub fn recv(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let msg = py.allow_threads(|| self.inner.recv());
+        match msg {
             Ok(obj) => Ok(obj.into_inner()),
             Err(_error) => Err(PyRuntimeError::new_err("Channel disconnected")),
+        }
+    }
+
+    pub fn try_recv(&self) -> PyResult<Option<PyObject>> {
+        match self.inner.try_recv() {
+            Ok(obj) => Ok(Some(obj.into_inner())),
+            Err(channel::TryRecvError::Empty) => Ok(None),
+            Err(channel::TryRecvError::Disconnected) => {
+                Err(PyRuntimeError::new_err("Channel disconnected"))
+            }
         }
     }
 

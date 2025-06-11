@@ -19,10 +19,8 @@ def test_list_int() -> None:
     source: IterableSource = IterableSource(inputs)
     res: list = []
 
-    sponge = source * ls.Dump(print_fun=lambda x: res.append(x))
-    print("a")
+    sponge = source * ls.Dump(print_fun=res.append)
     sponge.start()
-    print("b")
     sponge.join()
 
     assert res == expected_outputs
@@ -36,7 +34,7 @@ def test_list_str() -> None:
     source: IterableSource = IterableSource(inputs)
     res: list = []
 
-    sponge = source * ls.Dump(print_fun=lambda x: res.append(x))
+    sponge = source * ls.Dump(print_fun=res.append)
     sponge.start()
     sponge.join()
 
@@ -51,7 +49,7 @@ def test_list_dict() -> None:
     source: IterableSource = IterableSource(inputs)
     res: list = []
 
-    sponge = source * ls.Dump(print_fun=lambda x: res.append(x))
+    sponge = source * ls.Dump(print_fun=res.append)
     sponge.start()
     sponge.join()
 
@@ -66,7 +64,7 @@ def test_range() -> None:
     source: IterableSource = IterableSource(inputs)
     res: list = []
 
-    sponge = source * ls.Dump(print_fun=lambda x: res.append(x))
+    sponge = source * ls.Dump(print_fun=res.append)
     sponge.start()
     sponge.join()
 
@@ -75,3 +73,7 @@ def test_range() -> None:
 
 if __name__ == "__main__":
     test_list_int()
+    test_empty()
+    test_list_str()
+    test_list_dict()
+    test_range()

@@ -45,13 +45,12 @@
 //! ```
 
 use delegate::delegate;
-use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::sync::mpsc;
+use std::sync::Mutex;
 
-pub use mpsc::RecvError;
-pub use mpsc::SendError;
-pub use mpsc::TryRecvError;
+pub use crossbeam::channel::RecvError;
+pub use crossbeam::channel::SendError;
+pub use crossbeam::channel::TryRecvError;
 
 /// A policy for which past messages to keep.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -71,7 +70,7 @@ pub enum HistoryError {
 }
 
 pub struct Sender<T> {
-    inner: mpsc::Sender<T>,
+    inner: crossbeam::channel::Sender<T>,
 }
 
 impl<T> Sender<T> {
@@ -89,8 +88,8 @@ enum History<T> {
 }
 
 pub struct Receiver<T> {
-    inner: mpsc::Receiver<T>,
-    history: RefCell<History<T>>,
+    inner: crossbeam::channel::Receiver<T>,
+    history: Mutex<History<T>>,
 }
 
 impl<T> Receiver<T> {
@@ -117,7 +116,7 @@ impl<T> Receiver<T> {
     }
 
     pub fn is_empty(&self) -> bool {
-        match &*self.history.borrow() {
+        match &*self.history.lock().unwrap() {
             History::Full(queue) => queue.is_empty(),
             History::Newest(None) => true,
             History::Newest(Some(_)) => false,
@@ -126,7 +125,7 @@ impl<T> Receiver<T> {
     }
 
     pub fn len(&self) -> usize {
-        match &*self.history.borrow() {
+        match &*self.history.lock().unwrap() {
             History::Full(queue) => queue.len(),
             History::Newest(None) => 0,
             History::Newest(Some(_)) => 1,
@@ -138,7 +137,7 @@ impl<T> Receiver<T> {
     where
         T: Clone,
     {
-        match &*self.history.borrow() {
+        match &*self.history.lock().unwrap() {
             History::Full(queue) => {
                 if let Some(queue_index) = queue.len().checked_sub(index + 1) {
                     if let Some(msg) = queue.get(queue_index) {
@@ -161,14 +160,17 @@ impl<T> Receiver<T> {
     where
         T: Clone,
     {
-        (0..self.len()).map(|i| self.history(i).unwrap()).collect()
+        (0..self.len())
+            .rev()
+            .map(|i| self.history(i).unwrap())
+            .collect()
     }
 
     fn update_history(&self, msg: &T)
     where
         T: Clone,
     {
-        let mut hist = self.history.borrow_mut();
+        let mut hist = self.history.lock().unwrap();
         match &mut *hist {
             History::Full(queue) => queue.push_back(msg.clone()),
             History::Newest(slot) => *slot = Some(msg.clone()),
@@ -191,12 +193,12 @@ pub fn oblivious<T>() -> (Sender<T>, Receiver<T>) {
 
 /// Constructs a (`Sender`, `Receiver`) pair of a new channel.
 pub fn channel_with_policy<T>(policy: HistoryPolicy) -> (Sender<T>, Receiver<T>) {
-    let (tx_inner, rx_inner) = mpsc::channel::<T>();
+    let (tx_inner, rx_inner) = crossbeam::channel::unbounded::<T>();
     (
         Sender { inner: tx_inner },
         Receiver {
             inner: rx_inner,
-            history: RefCell::new(match policy {
+            history: Mutex::new(match policy {
                 HistoryPolicy::KeepAll => History::Full(VecDeque::new()),
                 HistoryPolicy::KeepNewest => History::Newest(None),
                 HistoryPolicy::KeepNone => History::None,

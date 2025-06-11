@@ -444,7 +444,8 @@ class DataStream:
 
         """
         with self._lock.gen_wlock():  # LIVENESS: Doesn't request another lock.
-            self.id = new_id
+            self._id = new_id
+            self._loopback._set_id(f"{new_id}:loopback")  # noqa: SLF001
         return self
 
     def get_id(self) -> str | None:
@@ -455,7 +456,7 @@ class DataStream:
 
         """
         with self._lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
-            return self.id
+            return self._id
 
     def __str__(self) -> str:
         """Construct a string description of the DataStream.
@@ -467,9 +468,15 @@ class DataStream:
         """
         # SAFETY: Use of _lock for ID
         with self._lock.gen_rlock():
-            return f"DataStream(id={self.get_id()}): {self.to_list()}"
+            return f"DataStream(id={self.get_id()}): {list(map(str, self.to_list()))}"
 
     def __len__(self) -> int:
+        """Calculate the length of the DataStream.
+
+        Returns:
+            The number of DataItems in the DataStream.
+
+        """
         return len(self._loopback)
 
     @overload
@@ -494,6 +501,12 @@ class DataStream:
         return self._loopback[index]
 
     def to_list(self) -> list[DataItem]:
+        """Create the list of DataItems in the DataStream.
+
+        Returns:
+            A list of DataItems in the DataStream.
+
+        """
         return self._loopback.to_list()
 
     def append(self, di: DataItem) -> Self:
@@ -506,9 +519,11 @@ class DataStream:
             The DataStream after appending the DataItem.
 
         """
+        logger.debug("[%s] appending: %s", self.get_id(), str(di))
+        logger.debug("[%s] sending over %d transmitters", self.get_id(), len(self._channel_txs))
         for tx in self._channel_txs:
             tx.send(di)
-            self._loopback.next()
+        self._loopback.next()
         for fun in self._new_data_callbacks:
             fun(di)
         return self
@@ -520,9 +535,11 @@ class DataStream:
             The new Receiver.
 
         """
-        tx, rx = make_channel()
-        self._channel_txs.append(tx)
-        return rx
+        logger.debug("[%s] creating new receiver", self.get_id())
+        with self._lock.gen_wlock():
+            tx, rx = make_channel()
+            self._channel_txs.append(tx)
+            return rx
 
     def register_new_data_callback(self, callback: Callable[[DataItem], None]) -> None:
         """Register a "new data" callback function for the DataStream.
@@ -535,64 +552,6 @@ class DataStream:
             self._new_data_callbacks.append(callback)
 
 
-class LazyReceiver:
-    """A lazy encapsuation of Receiver.
-
-    Constructs the receiver at the first method access.
-    """
-
-    _ds: DataStream
-    _receiver: Receiver | None
-
-    def __init__(self, ds: DataStream) -> None:
-        self._ds = ds
-        self._receiver = None
-
-    def _construct(self) -> None:
-        if self._receiver is None:
-            self._receiver = self._ds._create_receiver()  # noqa: SLF001
-
-    def recv(self) -> DataItem:
-        if self._receiver is None:
-            self._receiver = self._ds._create_receiver()  # noqa: SLF001
-
-        if self._receiver is None:
-            msg = "Unreachable code"
-            raise AssertionError(msg)
-
-        return self._receiver.recv()
-
-    def history(self, index: int) -> DataItem:
-        if self._receiver is None:
-            self._receiver = self._ds._create_receiver()  # noqa: SLF001
-
-        if self._receiver is None:
-            msg = "Unreachable code"
-            raise AssertionError(msg)
-
-        return self._receiver.history(index)
-
-    def __len__(self) -> int:
-        if self._receiver is None:
-            self._receiver = self._ds._create_receiver()  # noqa: SLF001
-
-        if self._receiver is None:
-            msg = "Unreachable code"
-            raise AssertionError(msg)
-
-        return len(self._receiver)
-
-    def to_list(self) -> list[DataItem]:
-        if self._receiver is None:
-            self._receiver = self._ds._create_receiver()  # noqa: SLF001
-
-        if self._receiver is None:
-            msg = "Unreachable code"
-            raise AssertionError(msg)
-
-        return self._receiver.to_list()
-
-
 class DataStreamView:
     """Represents a view into a data stream, i.e., a prefix of the DataStream, with associated metadata.
 
@@ -603,7 +562,7 @@ class DataStreamView:
     _owner: "Term"
 
     _ds: DataStream
-    _receiver: LazyReceiver
+    _receiver: Receiver
 
     _lock: rwlock.RWLockFair
 
@@ -620,7 +579,7 @@ class DataStreamView:
         self._owner = owner
 
         self._ds = ds
-        self._receiver = LazyReceiver(ds)
+        self._receiver = ds._create_receiver()  # noqa: SLF001
 
         self._lock = rwlock.RWLockFair()
 
@@ -688,6 +647,12 @@ class DataStreamView:
         raise NotImplementedError
 
     def to_list(self) -> list[DataItem]:
+        """Create the list of DataItems in the DataStreamView.
+
+        Returns:
+            A list of DataItems in the DataStreamView.
+
+        """
         return self._receiver.to_list()
 
     def __str__(self) -> str:
@@ -702,14 +667,18 @@ class DataStreamView:
         with self._lock.gen_rlock():
             return f"DataStreamView(id={self.get_id()}): {self._receiver.to_list()}"
 
-    def peek(self) -> bool:
-        """Check whether a new DataItem is ready.
+    def try_next(self) -> bool:
+        """Try advancing the DataStreamView's cursor by one DataItem.
+
+        Doesn't block.
 
         Returns:
-            True iff a new DataItem is ready (i.e., a call to next will not block)
+            True iff the cursor was successfully advanced.
 
         """
-        raise NotImplementedError
+        logger.debug("[%s] try_next()", self.get_id())
+        next_di = self._receiver.try_recv()
+        return next_di is not None
 
     def next(self) -> None:
         """Advance the DataStreamView's cursor by one DataItem.
@@ -717,6 +686,7 @@ class DataStreamView:
         Blocks if no item is available.
 
         """
+        logger.debug("[%s] next()", self.get_id())
         self._receiver.recv()
 
     def tail(self, n: int) -> list[DataItem]:
@@ -734,9 +704,6 @@ class DataStreamView:
             "read": self.pos,
             "write": len(self.ds),
         }
-
-    def prepare(self) -> None:
-        self._receiver._construct()
 
 
 class Term(ABC):
@@ -793,7 +760,7 @@ class Term(ABC):
         raise TypeError(msg)
 
     @abstractmethod
-    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:
+    def start(self, *, persistent: bool = False) -> None:
         """Start execution of the term."""
 
     @abstractmethod
@@ -849,15 +816,12 @@ class SourceTerm(Term):
     def exit(self) -> None:
         """Overwrite this function to clean up the source term's thread."""
 
-    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:  # noqa: ARG002
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
         """Start the source term's thread."""
         if not self.id:
             self._set_id("root")
 
         def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
-            if start_event is not None:
-                start_event.wait()
-
             self.enter()
             try:
                 self.run()
@@ -888,9 +852,9 @@ class SourceTerm(Term):
     def output(self, data: DataItem) -> None:
         """Output data."""
         data.set_time_to_now()
-        print("sending")
+        logger.debug("[%s] sending: %s", self, data)
         self._output.append(data)
-        print("sent")
+        logger.debug("[%s] sent: %s", self, data)
 
     def eos(self) -> None:
         """Signal an EOS (end of stream) for this source."""
@@ -913,7 +877,7 @@ class SourceTerm(Term):
             "name": self.name,
             "type": term_type,
             "output": {
-                "id": self._output.id,
+                "id": self._output.get_id(),
                 "write": len(self._output),
                 "latency_avg": latency_avg,
                 "latency_max": latency_max,
@@ -1014,17 +978,10 @@ class FunctionTerm(Term):
     def exit(self) -> None:
         """Overwrite this function to clean up the function term's thread."""
 
-    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:  # noqa: ARG002, C901, PLR0912, PLR0915
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002, C901, PLR0912, PLR0915
         """Start the function term's thread."""
         if not self.id:
             self._set_id("root")
-
-        def prepare() -> None:
-            if start_event is not None:
-                start_event.wait()
-
-            for dsv in self._inputs.values():
-                dsv.prepare()
 
         # different execute versions
         def execute_f_dataitem(stop_event: threading.Event) -> None:
@@ -1035,17 +992,15 @@ class FunctionTerm(Term):
             if input_stream is None:
                 return
 
-            prepare()
-
             self.enter()
             try:
                 while not stop_event.is_set():
-                    print("receiving")
+                    logger.debug("[%s] receiving", self)
                     input_stream.next()
-                    print("received")
                     self._latency_queue.tic()
 
                     last_di = input_stream[-1]
+                    logger.debug("[%s] received: %s", self, last_di)
                     if last_di.get_control_signal(Control.EOS):
                         # received an EOS
                         self.eos()
@@ -1061,8 +1016,6 @@ class FunctionTerm(Term):
 
         def execute_f_tuple_dataitem(stop_event: threading.Event) -> None:
             inputs: list[DataStreamView] = list(self._inputs.values())
-
-            prepare()
 
             self.enter()
             try:
@@ -1088,8 +1041,6 @@ class FunctionTerm(Term):
         def execute_f_args_dataitem(stop_event: threading.Event) -> None:
             inputs: list[DataStreamView] = list(self._inputs.values())
 
-            prepare()
-
             self.enter()
             try:
                 while not stop_event.is_set():
@@ -1110,8 +1061,6 @@ class FunctionTerm(Term):
 
         def execute_f_dict_dataitem(stop_event: threading.Event) -> None:
             inputs: dict[str, DataStreamView] = self._inputs
-
-            prepare()
 
             self.enter()
             try:
@@ -1136,8 +1085,6 @@ class FunctionTerm(Term):
             if inputs is None:
                 return
 
-            prepare()
-
             self.enter()
             try:
                 self.run(inputs)
@@ -1147,8 +1094,6 @@ class FunctionTerm(Term):
 
         def execute_run_tuple_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs = tuple(self._inputs.values())
-
-            prepare()
 
             self.enter()
             try:
@@ -1160,8 +1105,6 @@ class FunctionTerm(Term):
         def execute_run_args_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs = tuple(self._inputs.values())
 
-            prepare()
-
             self.enter()
             try:
                 self.run(*inputs)
@@ -1171,8 +1114,6 @@ class FunctionTerm(Term):
 
         def execute_run_dict_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs: dict[str, DataStreamView] = self._inputs
-
-            prepare()
 
             self.enter()
             try:
@@ -1279,7 +1220,7 @@ class FunctionTerm(Term):
             "name": self.name,
             "type": term_type,
             "output": {
-                "id": self._output.id,
+                "id": self._output.get_id(),
                 "write": len(self._output),
                 "latency_avg": self._latency_queue.avg,
                 "latency_max": self._latency_queue.max,
@@ -1329,7 +1270,7 @@ class DynamicSpawnTerm(Term):
         for name, ds in self._inputs.items():
             ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:
+    def start(self, *, persistent: bool = False) -> None:
         """Start the Term."""
         if persistent:
             msg = "Persistence not implemented for DynamicSpawnTerms"
@@ -1339,9 +1280,6 @@ class DynamicSpawnTerm(Term):
             inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
             if inputs is None:
                 return
-
-            if start_event is not None:
-                start_event.wait()
 
             self.enter()
             try:
@@ -1423,7 +1361,7 @@ class DynamicSpawnTerm(Term):
             "name": self.name,
             "type": term_type,
             "output": {
-                "id": self._output.id,
+                "id": self._output.get_id(),
                 "write": len(self._output),
                 "latency_avg": self._latency_queue.avg,
                 "latency_max": self._latency_queue.max,
@@ -1447,21 +1385,13 @@ class CompositeTerm(Term):
         self.term_left._parent = self  # noqa: SLF001
         self.term_right._parent = self  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:
+    def start(self, *, persistent: bool = False) -> None:
         """Start the Term."""
         if not self.id:
             self._set_id("root")
 
-        if start_event is None:
-            new_start_event = threading.Event()
-
-            self.term_left.start(persistent=persistent, start_event=new_start_event)
-            self.term_right.start(persistent=persistent, start_event=new_start_event)
-
-            new_start_event.set()
-        else:
-            self.term_left.start(persistent=persistent, start_event=start_event)
-            self.term_right.start(persistent=persistent, start_event=start_event)
+        self.term_left.start(persistent=persistent)
+        self.term_right.start(persistent=persistent)
 
     def stop(self) -> None:
         """Stop the Term."""
@@ -1537,7 +1467,7 @@ class Stop(Term):
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
 
-    def start(self, *, persistent: bool = False, start_event: threading.Event | None = None) -> None:  # noqa: ARG002
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
         """Start the Term."""
         if not self.id:
             self._set_id("root")
@@ -1624,21 +1554,26 @@ class Linearizer(FunctionTerm):
         active_dsv_names = set(dsvs.keys())
         while active_dsv_names:  # not empty
             with self._new_data:
-                self._new_data.wait_for(lambda: any(dsvs[name].peek() for name in dsvs))
+                dirty = False
+                names_to_remove = []
+                logger.debug("[%s] active DataStreamViews: %s", self, active_dsv_names)
+                for name in active_dsv_names:
+                    if dsvs[name].try_next():
+                        dirty = True
+                        di = dsvs[name][-1]
+                        logger.debug("[%s] received: %s", self, str(di))
+                        if di.get_control_signal(Control.EOS):
+                            names_to_remove.append(name)
+                        else:
+                            self.output(DataItem({"name": name, "data": di}) if self._info else di)
 
-            name_to_remove = None
-            for name in active_dsv_names:
-                if dsvs[name].peek():
-                    dsvs[name].next()  # LIVENESS: can't block since only we call next on our views and peek() was True
-                    di = dsvs[name][-1]
-                    if di.get_control_signal(Control.EOS):
-                        name_to_remove = name
-                    else:
-                        self.output(DataItem({"name": name, "data": di}) if self._info else di)
-                    break
+                for name in names_to_remove:
+                    active_dsv_names.remove(name)
 
-            if name_to_remove is not None:
-                active_dsv_names.remove(name_to_remove)
+                if not dirty:
+                    logger.debug("[%s] waiting for new data", self)
+                    self._new_data.wait()
+        self.eos()
 
 
 class KeyValueFilter(FunctionTerm):

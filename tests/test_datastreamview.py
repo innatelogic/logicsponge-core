@@ -61,3 +61,7 @@ def test_datastreamview_two_elements() -> None:
 
     with pytest.raises(IndexError) as _:
         ds[-3]
+
+
+if __name__ == "__main__":
+    test_datastreamview_one_element()
