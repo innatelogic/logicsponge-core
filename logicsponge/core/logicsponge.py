@@ -7,7 +7,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable, Hashable, Iterator
+from collections.abc import Callable, Hashable, Iterable, Iterator
 from datetime import datetime
 from enum import Enum
 from functools import reduce
@@ -838,8 +838,16 @@ class Term(ABC):
         msg = "Only terms can be combined in sequence"
         raise TypeError(msg)
 
-    def __or__(self, other: "Term") -> "ParallelTerm":
+    def __or__(self, other: "Term | Iterable") -> "Self | ParallelTerm":
         """Compose the Term in parallel with the other Term."""
+        # Iterable support
+        if isinstance(other, Iterable) and not isinstance(other, (str, bytes)):
+            result = self
+            for element in other:
+                result = result | element
+            return result
+
+        # term1 | term2
         if isinstance(other, Term):
             return ParallelTerm(self, other)
         msg = "Only terms can be combined in parallel"
@@ -1977,7 +1985,7 @@ def get_annotations(obj: object, method_name: str) -> list | None:
 def parallel(li: list[Term]) -> Term:
     """Create a ParallelTerm for the arguments."""
 
-    def red_parallel(x: Term, y: Term) -> ParallelTerm:
+    def red_parallel(x: Term, y: Term) -> ParallelTerm | Term:
         return x | y
 
     return reduce(red_parallel, li)
