@@ -7,7 +7,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable, Hashable, Iterator
+from collections.abc import Callable, Hashable, Iterator, Mapping
 from datetime import datetime
 from enum import Enum
 from functools import reduce
@@ -27,8 +27,10 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-InT = TypeVar("InT")
-OutT = TypeVar("OutT")
+
+DataItemT = TypeVar("DataItemT", bound=Mapping[str, Any])
+InT = TypeVar("InT", bound=Mapping[str, Any])
+OutT = TypeVar("OutT", bound=Mapping[str, Any])
 
 # IOType = TypedDict | tuple[TypedDict] | dict[str, TypedDict] | Any | None
 
@@ -131,9 +133,6 @@ class LatencyQueue:
         return max(latencies)
 
 
-DataItemT = TypeVar("DataItemT")
-
-
 class DataItem(Generic[DataItemT]):
     """Encapsulates a collection of key/value data pairs, together with associated metadata.
 
@@ -146,7 +145,7 @@ class DataItem(Generic[DataItemT]):
     _time: float
     _control: set[Control]
 
-    def __init__(self, data: dict[str, Any] | Self | None = None) -> None:
+    def __init__(self, data: DataItemT | Self | None = None) -> None:
         """Initialize a new DataItem.
 
         Args:
@@ -872,10 +871,6 @@ class Term(ABC):
     def __str__(self) -> str:
         """Return a str representation."""
         return f"Term({self.name})"
-
-    # def promise_type(self, in_type) -> IOType:  # noqa: ARG002
-    #     """Given a potential input type 'in_type', return the promised output type."""
-    #     return Any
 
 
 class SourceTerm(Term):
@@ -1890,14 +1885,6 @@ class Id(FunctionTerm):
     def f(self, item: DataItem[InT]) -> DataItem[InT]:
         """Forward data."""
         return item
-
-    # def promise_type(self, in_type: IOType) -> IOType:
-    #     """Given a potential input type 'in_type', return the promised output type."""
-    #     if isinstance(in_type, tuple) and len(in_type) > 0:
-    #         return in_type[0]
-    #     if isinstance(in_type, dict) and len(in_type) > 0:
-    #         return in_type[next(iter(in_type.keys()))]
-    #     return in_type
 
 
 class EosFilter(Id):
