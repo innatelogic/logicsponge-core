@@ -27,11 +27,6 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-
-DataItemT = TypeVar("DataItemT", bound=Mapping[str, Any])
-InT = TypeVar("InT", bound=Mapping[str, Any])
-OutT = TypeVar("OutT", bound=Mapping[str, Any])
-
 # IOType = TypedDict | tuple[TypedDict] | dict[str, TypedDict] | Any | None
 
 
@@ -131,6 +126,9 @@ class LatencyQueue:
         if not latencies:
             return float("nan")
         return max(latencies)
+
+
+DataItemT = TypeVar("DataItemT", bound=Mapping[str, Any])
 
 
 class DataItem(Generic[DataItemT]):
@@ -1875,6 +1873,9 @@ class Rename(FunctionTerm):
         return DataItem({self.fun(k): v for k, v in item.items()})
 
 
+TA = TypeVar("TA", bound=Mapping[str, Any])
+
+
 class Id(FunctionTerm):
     """Identity. Id only forwards the 1st stream."""
 
@@ -1882,7 +1883,7 @@ class Id(FunctionTerm):
         """Create an Id object."""
         super().__init__(*args, **kwargs)
 
-    def f(self, item: DataItem[InT]) -> DataItem[InT]:
+    def f(self, item: DataItem[TA]) -> DataItem[TA]:
         """Forward data."""
         return item
 
