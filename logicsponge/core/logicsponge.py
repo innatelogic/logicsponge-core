@@ -797,7 +797,10 @@ class DataStreamView:
         }
 
 
-class Term(ABC):
+OutTnew = TypeVar("OutTnew")
+
+
+class Term[InT, OutT](ABC):
     """The basic Term class.
 
     Attributes:
@@ -836,14 +839,14 @@ class Term(ABC):
     def _set_id(self, new_id: str) -> None:
         pass
 
-    def __mul__(self, other: "Term") -> "SequentialTerm":
+    def __mul__(self, other: "Term[OutT,OutTnew]") -> "SequentialTerm[InT,OutTnew]":
         """Compose the Term sequentially with the other Term."""
         if isinstance(other, Term):
             return SequentialTerm(self, other)
         msg = "Only terms can be combined in sequence"
         raise TypeError(msg)
 
-    def __or__(self, other: "Term") -> "ParallelTerm":
+    def __or__(self, other: "Term[InT, OutT1]") -> "ParallelTerm[InT, flattened_tuple[OutT, OutT1]]":
         """Compose the Term in parallel with the other Term."""
         if isinstance(other, Term):
             return ParallelTerm(self, other)
