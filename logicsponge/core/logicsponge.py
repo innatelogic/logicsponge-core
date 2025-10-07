@@ -1418,6 +1418,19 @@ class DynamicSpawnTerm(Term):
         self._output.append(eos_di)
         self.stop()
 
+    def stop(self) -> None:
+        """Signal a Term to stop its execution."""
+        self._stop_event.set()
+        for term in self._spawned_terms.values():
+            term.stop()
+
+    def join(self) -> None:
+        """Wait for a Term to terminate."""
+        if self._thread is not None:
+            self._thread.join()
+        for term in self._spawned_terms.values():
+            term.join()
+
     def enter(self) -> None:
         """Overwrite this function to initialize the term's thread."""
 
