@@ -88,7 +88,7 @@ class LogicSpongeThreadPool:
         """Shutdown the thread pool."""
         logger.info("Shutting down LogicSponge thread pool")
         self.executor.shutdown(wait=wait)
-        with cls._lock:
+        with LogicSpongeThreadPool._lock:
             LogicSpongeThreadPool._instance = None
 
 

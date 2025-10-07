@@ -18,7 +18,6 @@ from readerwriterlock import rwlock
 from typing_extensions import override
 
 from logicsponge.core.datastructures import SharedQueue, SharedQueueView
-from logicsponge.core.thread_pool import get_thread_pool
 
 # logging
 logger = logging.getLogger(__name__)
@@ -807,9 +806,6 @@ class Term(ABC):
     id: str | None
     _outputs: dict[str, DataStream]
     _parent: "Term | None"
-    _thread: threading.Thread | None
-    _future: Any | None  # concurrent.futures.Future when using thread pool
-    _stop_event: threading.Event
 
     def __init__(self, name: str | None = None, **kwargs) -> None:  # noqa: ANN003, ARG002
         """Create a Term."""
@@ -818,9 +814,6 @@ class Term(ABC):
         self.id = None
         self._outputs = {}
         self._parent = None
-        self._thread = None  # initially no thread is running
-        self._future = None  # for thread pool futures
-        self._stop_event = threading.Event()
         if name is None:
             self.name = str(type(self).__name__)
         else:
@@ -853,52 +846,16 @@ class Term(ABC):
         raise TypeError(msg)
 
     @abstractmethod
-    def _create_execute_func(self) -> Callable[[threading.Event], None]:
-        """Create the execution function for this term.
+    def start(self, *, persistent: bool = False) -> None:
+        """Start execution of the term."""
 
-        Returns:
-            A callable that takes a stop_event and executes the term's logic.
-        """
-
-    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
-        """Start execution of the term using thread pool if available, otherwise dedicated thread."""
-        if not self.id:
-            self._set_id("root")
-
-        # Get the execution function from the subclass
-        execute = self._create_execute_func()
-
-        # check if no thread is already running
-        if self._thread is None:
-            # Try to use thread pool, fallback to dedicated thread
-            thread_pool = get_thread_pool()
-            if thread_pool is not None:
-                # Submit to thread pool
-                self._future = thread_pool.submit_term(execute, self._stop_event, str(self))
-                # Create a dummy thread object for compatibility
-                self._thread = threading.Thread(target=lambda: None, name=str(self))
-                self._thread._using_thread_pool = True
-            else:
-                # create a new dedicated thread (original behavior)
-                self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
-                self._thread._using_thread_pool = False
-                self._thread.start()
-
+    @abstractmethod
     def stop(self) -> None:
         """Signal a Term to stop its execution."""
-        self._stop_event.set()
-        logger.debug("%s stopped", self)
 
+    @abstractmethod
     def join(self) -> None:
         """Wait for a Term to terminate."""
-        if self._thread is not None:
-            if hasattr(self._thread, "_using_thread_pool") and self._thread._using_thread_pool:
-                # Wait for thread pool future to complete
-                if self._future is not None:
-                    self._future.result()  # This will block until completion
-            else:
-                # Wait for dedicated thread
-                self._thread.join()
 
     def cancel(self) -> None:
         """Cancel the Term."""
@@ -912,7 +869,9 @@ class Term(ABC):
 class SourceTerm(Term):
     """Term that acts as a source."""
 
+    _thread: threading.Thread | None
     _output: DataStream
+    _stop_event: threading.Event
     state: State
 
     def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
@@ -920,6 +879,8 @@ class SourceTerm(Term):
         super().__init__(*args, **kwargs)
         self._output = DataStream(owner=self)
         self._outputs[self.name] = self._output
+        self._thread = None  # initially no thread is running
+        self._stop_event = threading.Event()
         self.state = {}
 
     def _add_input(self, name: str, ds: DataStream) -> None:  # noqa: ARG002
@@ -941,8 +902,10 @@ class SourceTerm(Term):
     def exit(self) -> None:
         """Overwrite this function to clean up the source term's thread."""
 
-    def _create_execute_func(self) -> Callable[[threading.Event], None]:
-        """Create the execution function for the source term."""
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start the source term's thread."""
+        if not self.id:
+            self._set_id("root")
 
         def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
             self.enter()
@@ -952,7 +915,21 @@ class SourceTerm(Term):
             finally:
                 self.exit()
 
-        return execute
+        # check if no thread is already running
+        if self._thread is None:
+            # create a new thread
+            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
+            self._thread.start()
+
+    def stop(self) -> None:
+        """Stop the Source."""
+        self._stop_event.set()
+        logger.debug("%s stopped", self)
+
+    def join(self) -> None:
+        """Wait for the source thread to terminate."""
+        if self._thread is not None:
+            self._thread.join()
 
     def output(self, data: DataItem) -> None:
         """Output data."""
@@ -1021,6 +998,8 @@ class FunctionTerm(Term):
 
     _inputs: dict[str, DataStreamView]  # name -> input stream view
     _output: DataStream
+    _thread: threading.Thread | None
+    _stop_event: threading.Event
     _latency_queue: LatencyQueue
     state: State
 
@@ -1030,6 +1009,8 @@ class FunctionTerm(Term):
         self._inputs = {}
         self._output = DataStream(owner=self)
         self._outputs[self.name] = self._output
+        self._thread = None  # initially no thread is running
+        self._stop_event = threading.Event()
         self._latency_queue = LatencyQueue()
         self.state = {}
 
@@ -1067,8 +1048,26 @@ class FunctionTerm(Term):
     def exit(self) -> None:
         """Overwrite this function to clean up the function term's thread."""
 
-    def _create_execute_func(self) -> Callable[[threading.Event], None]:
-        """Create the execution function for the function term."""
+    def stop(self) -> None:
+        """Stop the Term."""
+        self._stop_event.set()
+        logger.debug("%s stopped", self)
+
+    def join(self) -> None:
+        """Wait until the Term terminates."""
+        if self._thread is not None:
+            self._thread.join()
+
+    def enter(self) -> None:
+        """Overwrite this function to initialize the function term's thread."""
+
+    def exit(self) -> None:
+        """Overwrite this function to clean up the function term's thread."""
+
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002, C901, PLR0912, PLR0915
+        """Start the function term's thread."""
+        if not self.id:
+            self._set_id("root")
 
         # different execute versions
         def execute_f_dataitem(stop_event: threading.Event) -> None:
@@ -1279,7 +1278,11 @@ class FunctionTerm(Term):
             for dsv in self._inputs.values():
                 dsv._ds.set_history_bound(NumberBound(1))  # noqa: SLF001
 
-        return execute
+        # check if no thread is already running
+        if self._thread is None:
+            # create a new thread
+            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
+            self._thread.start()
 
     def next(self, input_stream: DataStreamView) -> None:
         """Wait for next data on input stream."""
@@ -1317,6 +1320,7 @@ class DynamicSpawnTerm(Term):
     _spawn_fun: Callable[[Hashable], Term]
     _spawned_streams: dict[Hashable, DataStream]
     _spawned_terms: dict[Hashable, Term]
+    _thread: threading.Thread | None
     _output: DataStream
     _latency_queue: LatencyQueue
 
@@ -1327,8 +1331,10 @@ class DynamicSpawnTerm(Term):
         self._spawn_fun = spawn_fun
         self._spawned_streams = {}
         self._spawned_terms = {}
+        self._thread = None
 
         self._inputs = {}
+        self._stop_event = threading.Event()
         self._latency_queue = LatencyQueue()
         self.state = {}
         self._output = DataStream(owner=self)
@@ -1348,8 +1354,11 @@ class DynamicSpawnTerm(Term):
         for name, ds in self._inputs.items():
             ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
 
-    def _create_execute_func(self) -> Callable[[threading.Event], None]:
-        """Create the execution function for the dynamic spawn term."""
+    def start(self, *, persistent: bool = False) -> None:
+        """Start the Term."""
+        if persistent:
+            msg = "Persistence not implemented for DynamicSpawnTerms"
+            raise NotImplementedError(msg)
 
         def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
             inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
@@ -1363,14 +1372,11 @@ class DynamicSpawnTerm(Term):
             finally:
                 self.exit()
 
-        return execute
-
-    def start(self, *, persistent: bool = False) -> None:
-        """Start the Term."""
-        if persistent:
-            msg = "Persistence not implemented for DynamicSpawnTerms"
-            raise NotImplementedError(msg)
-        super().start(persistent=persistent)
+        # check if no thread is already running
+        if self._thread is None:
+            # create a new thread
+            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
+            self._thread.start()
 
     def run(self, ds: DataStreamView) -> None:
         """Execute run."""
@@ -1452,16 +1458,6 @@ class CompositeTerm(Term):
 
         self.term_left._parent = self  # noqa: SLF001
         self.term_right._parent = self  # noqa: SLF001
-
-    def _create_execute_func(self) -> Callable[[threading.Event], None]:
-        """Create execution function that delegates to child terms."""
-
-        def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
-            # CompositeTerm doesn't do its own execution,
-            # it just manages child terms which are started separately
-            return
-
-        return execute
 
     def start(self, *, persistent: bool = False) -> None:
         """Start the Term."""
@@ -1545,14 +1541,18 @@ class Stop(Term):
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
 
-    def _create_execute_func(self) -> Callable[[threading.Event], None]:
-        """Create a no-op execution function for the stop term."""
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start the Term."""
+        if not self.id:
+            self._set_id("root")
 
-        def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
-            # Stop term does nothing
-            return
+    def stop(self) -> None:
+        """Stop the Term."""
+        return
 
-        return execute
+    def join(self) -> None:
+        """Wait until Term terminates."""
+        return
 
 
 class Flatten(FunctionTerm):
