@@ -1774,13 +1774,21 @@ class Print(FunctionTerm):
     not_keys: None | str | list[str]
     print_fun: Callable
 
-    def __init__(self, *args, keys: None | str | list[str] = None, print_fun: Callable = print, **kwargs) -> None:  # noqa: ANN002, ANN003
+    def __init__(
+        self,
+        *args,  # noqa: ANN002
+        keys: None | str | list[str] = None,
+        print_fun: Callable = print,
+        date_to_str: bool = False,
+        **kwargs,  # noqa: ANN003
+    ) -> None:
         """Create a Print object."""
         self.keys = None
         self.not_keys = None
         not_keys = kwargs.pop("not_keys", None)
 
         self.print_fun = print_fun
+        self.date_to_str = date_to_str
 
         if keys is None and len(args) > 0 and isinstance(args[0], str | list):
             keys = args[0]
@@ -1806,7 +1814,8 @@ class Print(FunctionTerm):
             filtered_item = item
 
         formatted_item = {
-            k: (v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, datetime) else v) for k, v in filtered_item.items()
+            k: (v.strftime("%Y-%m-%d %H:%M:%S") if self.date_to_str and isinstance(v, datetime) else v)
+            for k, v in filtered_item.items()
         }
         self.print_fun(formatted_item)
         return item  # return original item
