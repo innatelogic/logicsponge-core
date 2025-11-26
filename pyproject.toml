@@ -53,7 +53,7 @@ reportUnusedVariable = true
 
 [tool.ruff]
 line-length = 120
-lint.select = ["ALL"]
+lint.select = ["ALL", "PLC", "RUF"]
 lint.ignore = [
     "COM812",
     "CPY001",

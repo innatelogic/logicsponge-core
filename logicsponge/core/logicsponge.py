@@ -418,8 +418,8 @@ class SourceTerm(Term):
         if not self.id:
             self._set_id("root")
 
-        from logicsponge.core.flow_backend import run_flow_graph
-        from logicsponge.core.graph import TermGraph
+        from logicsponge.core.flow_backend import run_flow_graph  # noqa: PLC0415  # lazy to avoid import cycle
+        from logicsponge.core.graph import TermGraph  # noqa: PLC0415  # lazy to avoid import cycle
 
         # Collect all connected terms
         all_terms = self._collect_connected_terms()
@@ -580,8 +580,8 @@ class FunctionTerm(Term):
         if not self.id:
             self._set_id("root")
 
-        from logicsponge.core.flow_backend import run_flow_graph
-        from logicsponge.core.graph import TermGraph
+        from logicsponge.core.flow_backend import run_flow_graph  # noqa: PLC0415  # lazy to avoid import cycle
+        from logicsponge.core.graph import TermGraph  # noqa: PLC0415  # lazy to avoid import cycle
 
         # Collect all connected terms
         all_terms = self._collect_connected_terms()
@@ -711,8 +711,8 @@ class FlatMapTerm(Term):
         if not self.id:
             self._set_id("root")
 
-        from logicsponge.core.flow_backend import run_flow_graph
-        from logicsponge.core.graph import TermGraph
+        from logicsponge.core.flow_backend import run_flow_graph  # noqa: PLC0415  # lazy to avoid import cycle
+        from logicsponge.core.graph import TermGraph  # noqa: PLC0415  # lazy to avoid import cycle
 
         all_terms = self._collect_connected_terms()
 
@@ -775,8 +775,8 @@ class CompositeTerm(Term):
         if not self.id:
             self._set_id("root")
 
-        from logicsponge.core.flow_backend import run_flow_graph
-        from logicsponge.core.graph import TermGraph
+        from logicsponge.core.flow_backend import run_flow_graph  # noqa: PLC0415  # lazy to avoid import cycle
+        from logicsponge.core.graph import TermGraph  # noqa: PLC0415  # lazy to avoid import cycle
 
         # Collect all connected terms from both sides
         all_terms = self._collect_connected_terms()
@@ -975,7 +975,7 @@ class KeyValueFilter(FunctionTerm):
         if key_value_filter is None and len(args) > 0 and has_callable_signature(args[0], (str, Any), bool):
             key_value_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
             name = str(args[0])
-            args = (name,) + args[1:]
+            args = (name, *args[1:])
 
         super().__init__(*args, **kwargs)
         self.key_value_filter = key_value_filter
@@ -1003,7 +1003,7 @@ class DataItemFilter(FunctionTerm):
         if data_item_filter is None and len(args) > 0 and has_callable_signature(args[0], (Any,), bool):
             data_item_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
             name = str(args[0])
-            args = (name,) + args[1:]
+            args = (name, *args[1:])
 
         super().__init__(*args, **kwargs)
         self.data_item_filter = data_item_filter
@@ -1045,7 +1045,7 @@ class KeyFilter(KeyValueFilter):
                 raise TypeError(msg)
             keys = args[0]
             name = str(args[0])
-            args = (name,) + args[1:]
+            args = (name, *args[1:])
 
         self.keys = keys
         self.not_keys = not_keys

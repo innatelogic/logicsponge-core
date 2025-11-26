@@ -1,6 +1,7 @@
 """Test all source implementations."""
 
 import csv
+import queue
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -108,7 +109,6 @@ def test_file_watch_source() -> None:
 
         # The queue should have the initial read
         # Use timeout to avoid blocking forever
-        import queue
 
         try:
             item = source.queue.get(timeout=1.0)
