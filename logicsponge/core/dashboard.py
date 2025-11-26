@@ -547,10 +547,10 @@ class Plot(ls.FunctionTerm):
             )
             raise KeyError(msg) from err
 
-    def f(self, item: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Add the new data."""
-        self.add_data(item)
-        return item
+        self.add_data(di)
+        return di
 
 
 class BinaryPlot(Plot):
@@ -576,10 +576,10 @@ class BinaryPlot(Plot):
         for y_name in self.y_names:
             self.graph.add_line(label=y_name, x=[], y=[])
 
-    def f(self, item: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Execute on new data."""
-        self.add_data(item)
-        return item
+        self.add_data(di)
+        return di
 
 
 class DeepPlot(ls.FunctionTerm):
@@ -629,17 +629,17 @@ class DeepPlot(ls.FunctionTerm):
         label = kwargs.get("label", None)
         self.graph.add_line(x=x, y=y, label=label)
 
-    def f(self, item: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Run the plotting."""
         self.graph.clear()
-        self._call_plot_dicts(item)
+        self._call_plot_dicts(di)
 
         # potentially call the then-registered function
         if self.then_fun is not None:
-            self.then_fun(self, item)
+            self.then_fun(self, di)
 
         # return all
-        return item
+        return di
 
     def then(self, fun: Callable[[Self, ls.DataItem], None]) -> Self:
         """Run a function after plotting."""
@@ -658,10 +658,24 @@ def show_stats(circuit: ls.Term) -> None:
     statistics_graph = StatisticsGraph(circuit)
 
 
-def run(debug: bool = False) -> None:  # noqa: FBT001, FBT002
-    """Run the dashboard app."""
-    # NOTE: if debug=True then modules may load twice, and
-    # this will be bad for running circuits etc.
-    if debug:
+def run(debug: bool = False, *, background: bool = True) -> threading.Thread | None:  # noqa: FBT001, FBT002
+    """Run the dashboard app.
+
+    By default, the server starts in a daemon thread so pipelines can run
+    concurrently without blocking. Set `background=False` to block the
+    current thread.
+    """
+    if debug and not background:
         logger.warning("Enabling debugging may lead to >1 execution of module code.")
-    app.run(debug=debug)
+
+    if background:
+        thread = threading.Thread(
+            target=app.run,
+            kwargs={"debug": debug, "use_reloader": False},
+            daemon=True,
+        )
+        thread.start()
+        return thread
+
+    app.run(debug=debug, use_reloader=False)
+    return None

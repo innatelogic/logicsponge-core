@@ -1,5 +1,7 @@
 """Test merging streams."""
 
+from collections.abc import Iterator
+
 import logicsponge.core as ls
 
 
@@ -7,9 +9,8 @@ def test_nocombine() -> None:
     """Test not combining."""
 
     class MySource(ls.SourceTerm):
-        def run(self) -> None:
-            ds = ls.DataItem({"out": 0})
-            self.output(ds)
+        def generate(self) -> Iterator[ls.DataItem]:
+            yield ls.DataItem({"out": 0})
 
     outputs = []
     sink = ls.Dump(print_fun=lambda di: outputs.append(di))
@@ -26,9 +27,8 @@ def test_combine_overwrite() -> None:
     """Test combining."""
 
     class MySource(ls.SourceTerm):
-        def run(self) -> None:
-            ds = ls.DataItem({"out": 0})
-            self.output(ds)
+        def generate(self) -> Iterator[ls.DataItem]:
+            yield ls.DataItem({"out": 0})
 
     outputs = []
     sink = ls.Dump(print_fun=lambda di: outputs.append(di))
@@ -45,9 +45,8 @@ def test_combine() -> None:
     """Test combining."""
 
     class MySource(ls.SourceTerm):
-        def run(self) -> None:
-            ds = ls.DataItem({self.name: 0})
-            self.output(ds)
+        def generate(self) -> Iterator[ls.DataItem]:
+            yield ls.DataItem({self.name: 0})
 
     outputs = []
     sink = ls.Dump(print_fun=lambda di: outputs.append(di))
@@ -64,9 +63,8 @@ def test_nocombine_flatten() -> None:
     """Test not combining with flatten."""
 
     class MySource(ls.SourceTerm):
-        def run(self) -> None:
-            ds = ls.DataItem({"out": 0})
-            self.output(ds)
+        def generate(self) -> Iterator[ls.DataItem]:
+            yield ls.DataItem({"out": 0})
 
     outputs = []
     sink = ls.Dump(print_fun=lambda di: outputs.append(di))

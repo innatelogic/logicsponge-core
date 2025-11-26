@@ -7,22 +7,22 @@ name = "logicsponge-core"
 dynamic = ["version", "dependencies"]
 requires-python = ">=3.11"
 authors = [
-  { name = "Benedikt Bollig", email = "bollig@lmf.cnrs.fr" },
-  { name = "Matthias Függer", email = "mfuegger@lmf.cnrs.fr" },
-  { name = "Thomas Nowak", email = "thomas@thomasnowak.net" },
+    { name = "Benedikt Bollig", email = "bollig@lmf.cnrs.fr" },
+    { name = "Matthias Függer", email = "mfuegger@lmf.cnrs.fr" },
+    { name = "Thomas Nowak", email = "thomas@thomasnowak.net" },
 ]
 maintainers = [
-  { name = "Benedikt Bollig", email = "bollig@lmf.cnrs.fr" },
-  { name = "Matthias Függer", email = "mfuegger@lmf.cnrs.fr" },
-  { name = "Thomas Nowak", email = "thomas@thomasnowak.net" },
+    { name = "Benedikt Bollig", email = "bollig@lmf.cnrs.fr" },
+    { name = "Matthias Függer", email = "mfuegger@lmf.cnrs.fr" },
+    { name = "Thomas Nowak", email = "thomas@thomasnowak.net" },
 ]
 description = "A real-time data processing pipeline"
 readme = "README.md"
 license = { file = "LICENSE" }
 keywords = ["real-time", "data processing", "time series"]
 classifiers = [
-  "Development Status :: 4 - Beta",
-  "Programming Language :: Python",
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python",
 ]
 
 [project.urls]
@@ -44,17 +44,27 @@ packages = ["logicsponge"]
 venvPath = "."
 venv = "venv"
 typeCheckingMode = "standard"
+pythonVersion = "3.12"
 reportGeneralTypeIssues = true
 reportOptionalSubscript = true
 # reportUnknownParameterType = true
 # reportUnknownVariableType = true
-reportUninitializedVariable = true
 reportUnusedVariable = true
 
 [tool.ruff]
 line-length = 120
-lint.select = ["ALL"]
-lint.ignore = ["COM812", "CPY001", "D203", "D213", "ERA001", "FIX", "ISC001", "TD002", "TD003"]
+lint.select = ["ALL", "PLC", "RUF"]
+lint.ignore = [
+    "COM812",
+    "CPY001",
+    "D203",
+    "D213",
+    "ERA001",
+    "FIX",
+    "ISC001",
+    "TD002",
+    "TD003",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "**/examples/*" = ["INP001", "T201"]

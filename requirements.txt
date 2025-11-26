@@ -1,16 +1,17 @@
+# Core dependencies
+bytewax
 frozendict
-readerwriterlock
-ZODB
 
-numpy
-scipy
-
+# Dashboard and plotting
 dash
 dash-bootstrap-components
 dash-svg
-matplotlib
+numpy
 plotly
+matplotlib
+scipy
 
+# File handling and utilities
 chardet
 gdown
 watchdog

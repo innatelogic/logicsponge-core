@@ -4,8 +4,9 @@ import csv
 import logging
 import tempfile
 import time
-from collections.abc import Callable, Hashable, Iterable
+from collections.abc import Callable, Hashable, Iterable, Iterator
 from pathlib import Path
+from queue import Queue
 from typing import Any
 
 import chardet
@@ -31,22 +32,22 @@ class FileWatchHandler(watchdog.events.FileSystemEventHandler):
 
     file_path: Path
     encoding: str
-    source: "FileWatchSource"
+    queue: Queue[ls.DataItem]
 
-    def __init__(self, file_path: str, source: "FileWatchSource", encoding: str = "utf-8") -> None:
+    def __init__(self, file_path: str, queue: Queue[ls.DataItem], encoding: str = "utf-8") -> None:
         """Create a FileWatchHandler object."""
         super().__init__()
         self.file_path = Path(file_path).resolve()
-        self.source = source
+        self.queue = queue
         self.encoding = encoding
 
     def read_file(self) -> None:
-        """Read the file."""
+        """Read the file and push to queue."""
         # file was changed
         with Path.open(self.file_path, encoding=self.encoding) as file:
             data = file.read()
             timestamp = Path(self.file_path).stat().st_mtime
-            self.source.output(ls.DataItem({"Time": timestamp, "string": data}))
+            self.queue.put(ls.DataItem({"Time": timestamp, "string": data}))
 
     def on_modified(self, event: watchdog.events.FileSystemEvent) -> None:
         """Call if file was modified."""
@@ -59,13 +60,17 @@ class FileWatchSource(ls.SourceTerm):
 
     observer: BaseObserver
     handler: FileWatchHandler
+    queue: Queue[ls.DataItem]
 
     def __init__(self, file_path: str, *args, encoding: str = "utf-8", **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create a FileWatchSource object."""
         super().__init__(*args, **kwargs)
 
+        # Queue for callback-based events
+        self.queue = Queue()
+
         # setup the file watcher
-        self.handler = FileWatchHandler(file_path=file_path, source=self, encoding=encoding)
+        self.handler = FileWatchHandler(file_path=file_path, queue=self.queue, encoding=encoding)
 
         # observe the directory of the file
         self.observer = watchdog.observers.Observer()
@@ -82,10 +87,10 @@ class FileWatchSource(ls.SourceTerm):
         self.observer.stop()
         self.observer.join()
 
-    def run(self) -> None:
-        """Execute the source's run."""
+    def generate(self) -> Iterator[ls.DataItem]:
+        """Generate DataItems from file change events."""
         while True:
-            time.sleep(60)  # TODO: better way?
+            yield self.queue.get()  # Blocking pull from queue
 
 
 class CSVStreamer(ls.SourceTerm):
@@ -102,8 +107,8 @@ class CSVStreamer(ls.SourceTerm):
         self.poll_delay = poll_delay
         self.position = 0
 
-    def run(self) -> None:
-        """Execute the run."""
+    def generate(self) -> Iterator[ls.DataItem]:
+        """Generate DataItems from CSV file, polling for new rows."""
         # TODO: unclear about updates within line. Not explicitely managed.
         while True:
             try:
@@ -114,8 +119,7 @@ class CSVStreamer(ls.SourceTerm):
                     # Read new lines if available
                     reader = csv.DictReader(csvfile)
                     for row in reader:
-                        out = ls.DataItem(row)
-                        self.output(out)
+                        yield ls.DataItem(row)
 
                     self.position = csvfile.tell()
 
@@ -145,8 +149,8 @@ class GoogleDriveSource(ls.SourceTerm):
         """Download the file."""
         gdown.download(url=self.google_drive_link, output=str(self.local_filename), fuzzy=True, quiet=True)
 
-    def run(self) -> None:
-        """Execute the run."""
+    def generate(self) -> Iterator[ls.DataItem]:
+        """Generate DataItems from Google Drive file, polling for changes."""
         while True:
             if self.google_drive_link is None:
                 return
@@ -163,7 +167,7 @@ class GoogleDriveSource(ls.SourceTerm):
                 with Path.open(self.local_filename, encoding=encoding) as file:
                     file_contents = file.read()
 
-                self.output(ls.DataItem({"Time": time.time(), "string": file_contents}))
+                yield ls.DataItem({"Time": time.time(), "string": file_contents})
 
             finally:
                 time.sleep(self.poll_interval_sec)
@@ -179,22 +183,21 @@ class StringDiff(ls.FunctionTerm):
         super().__init__(*args, **kwargs)
         self.old_string = ""
 
-    def f(self, data: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Execute on new data."""
-        new_string = data["string"]
+        new_string = di["string"]
         ret_string = new_string.removeprefix(self.old_string)
         self.old_string = new_string
-        return ls.DataItem({**data, "string": ret_string})
+        return ls.DataItem({**di, "string": ret_string})
 
 
-class LineSplitter(ls.FunctionTerm):
+class LineSplitter(ls.FlatMapTerm):
     """Split into lines."""
 
-    def f(self, data: ls.DataItem) -> None:
+    def f(self, di: ls.DataItem) -> list[ls.DataItem]:
         """Execute on new data."""
-        lines = data["string"].replace("\r\n", "\n").split("\n")
-        for line in lines:
-            self.output(ls.DataItem({**data, "string": line}))
+        lines = di["string"].replace("\r\n", "\n").split("\n")
+        return [ls.DataItem({**di, "string": line}) for line in lines]
 
 
 class LineParser(ls.FunctionTerm):
@@ -213,9 +216,9 @@ class LineParser(ls.FunctionTerm):
         self.has_header = kwargs.get("has_header", True)
         self.header = None
 
-    def f(self, data: ls.DataItem) -> ls.DataItem | None:
+    def f(self, di: ls.DataItem) -> ls.DataItem | None:
         """Execute on new data."""
-        line = data["string"]
+        line = di["string"]
         if len(line) > 0 and line[0] == self.comment:
             # comment line
             return None
@@ -283,8 +286,7 @@ class IterableSource(ls.SourceTerm):
         self._formatter = formatter
         super().__init__(name=name, **kwargs)
 
-    def run(self) -> None:
-        """Execute the run."""
+    def generate(self) -> Iterator[ls.DataItem]:
+        """Generate DataItems from the iterable."""
         for item in self._iterable:
-            formatted = self._formatter(item)
-            self.output(ls.DataItem(formatted))
+            yield ls.DataItem(self._formatter(item))

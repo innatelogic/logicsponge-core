@@ -3,21 +3,15 @@
 import inspect
 import logging
 import pprint
-import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable, Hashable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
-from enum import Enum
 from functools import reduce
-from typing import Any, Self, TypedDict, TypeVar, overload
+from typing import Any, Self, TypeVar
 
 from frozendict import frozendict
-from readerwriterlock import rwlock
-from typing_extensions import override
-
-from logicsponge.core.datastructures import SharedQueue, SharedQueueView
 
 # logging
 logger = logging.getLogger(__name__)
@@ -28,25 +22,14 @@ logging.basicConfig(
 )
 
 
-# end of stream
-class Control(Enum):
-    """The possible control signals for DataItems.
-
-    Attributes:
-        EOS: The DataItem terminates the DataStream (End Of Stream).
-
-    """
-
-    EOS = "_EOS_"
-
-
 State = dict[str, Any]
 
 
 class LatencyQueue:
     """A queue of latencies, used to generate statistics of terms.
 
-    Attributes:
+    Attributes
+    ----------
         queue (deque): The queue of latencies.
         tic_time (float, optional): time of last tic() execution.
 
@@ -59,6 +42,7 @@ class LatencyQueue:
         """Create a LatencyQueue object.
 
         Args:
+        ----
             max_size (int): the maximal size of the queue. Adding to a queue of this size, leads to
                 the removal of the oldest entry.
 
@@ -93,7 +77,8 @@ class LatencyQueue:
     def avg(self) -> float:
         """Average latency in seconds.
 
-        Returns:
+        Returns
+        -------
             float: The average of all latencies in the queue. In [s].
 
         """
@@ -111,7 +96,8 @@ class LatencyQueue:
     def max(self) -> float:
         """Maximum latency in seconds.
 
-        Returns:
+        Returns
+        -------
             float: The maximum of all latencies in the queue. In [s].
 
         """
@@ -127,675 +113,157 @@ class LatencyQueue:
 
 
 class DataItem:
-    """Encapsulates a collection of key/value data pairs, together with associated metadata.
-
-    Contains methods to keep track of timing and control data. The implementation is thread-safe.
-    """
+    """Immutable key/value container with timestamp metadata."""
 
     _data: frozendict[str, Any]
-    _lock: rwlock.RWLockFair
-
     _time: float
-    _control: set[Control]
 
     def __init__(self, data: dict[str, Any] | Self | None = None) -> None:
-        """Initialize a new DataItem.
-
-        Args:
-            data: Contains the data carried by the DataItem.
-                If data is a dict, it copies the key/value data pairs out of the given dict.
-                If data is a DataItem, it copies the key/value data pairs out of the given DataItem.
-                If data is None, then the DataItem has no key/value data pairs.
-
-        """
-        # set data
+        """Initialize a new DataItem."""
         if data is None:
             self._data = frozendict()
         elif isinstance(data, DataItem):
-            self._data = frozendict(data._data)  # noqa: SLF001
+            self._data = data._data  # noqa: SLF001
         else:
             self._data = frozendict(data)
-
-        self._lock = rwlock.RWLockFair()
-
-        self._control = set()  # by default not a control data item
-        self.set_time_to_now()  # set time to now
-
-    @property
-    def has_control_signal(self) -> bool:
-        """True iff the DataItem has a control signal."""
-        with self._lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
-            return len(self._control) > 0
-
-    def get_control_signal(self, control: Control) -> bool:
-        """Check if a given control signal is set in the data item.
-
-        Args:
-            control: The control signal to be checked.
-
-        Returns:
-            True if the given control signal is set.
-
-        """
-        with self._lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
-            return control in self._control
-
-    def set_control_signal(self, control: Control | set[Control]) -> Self:
-        """Set the given control signal(s) in the DataItem.
-
-        Args:
-            control: The control signal(s).
-                If control is a single Control, sets the signal in the DataItem.
-                If control is a set of Control, sets all the set's signals in the DataItem.
-
-        Returns:
-            The DataItem after setting the control signal(s).
-
-        """
-        with self._lock.gen_wlock():
-            self._control = control if isinstance(control, set) else {control}
-        return self
+        self._time = time.time()
 
     @property
     def time(self) -> float:
-        """The DataItem's time metadata.
-
-        Returns:
-            The DataItem's time as a Unix timestamp.
-
-        """
-        with self._lock.gen_rlock():
-            return self._time
+        """Return the DataItem's timestamp."""
+        return self._time
 
     @time.setter
     def time(self, timestamp: float) -> None:
-        with self._lock.gen_wlock():
-            self._time = timestamp
+        self._time = timestamp
 
     def set_time_to_now(self) -> Self:
-        """Set the time metadata of the DataItem to the current time.
-
-        Returns:
-            The DataITem after setting the time.
-
-        """
-        with self._lock.gen_wlock():
-            # self._time = datetime.now(UTC).timestamp()
-            # make faster via:
-            self._time = time.time()
+        """Stamp with the current time and return self."""
+        self._time = time.time()
         return self
 
     def copy(self) -> "DataItem":
-        """Copy the current DataItem with the current time as metadata.
-
-        Returns:
-            The copied DataItem.
-
-        """
-        with self._lock.gen_rlock():
-            new_copy = DataItem(self)
-            new_copy.set_time_to_now()
-            new_copy.set_control_signal(self._control)
-            return new_copy
+        """Return a new DataItem with the same data and refreshed timestamp."""
+        new_copy = DataItem(self)
+        new_copy.set_time_to_now()
+        return new_copy
 
     def __str__(self) -> str:
-        """Construct a string description of the DataItem.
-
-        Returns:
-            A string of the format "DataItem(dict)" where dict contains all key/value data pairs.
-
-        """
+        """Construct a string description of the DataItem."""
         return f"DataItem({self._data})"
 
     def __getitem__(self, key: str) -> Any:  # noqa: ANN401
-        """Return the data value for a given key.
-
-        Args:
-            key: The key of the data value to be returned.
-
-        Returns:
-            The data value.
-
-        Raises:
-            IndexError: If no data value exists for the given key.
-
-        """
-        try:
-            return self._data[key]
-        except IndexError as e:
-            raise IndexError from e
-
-    def __delitem__(self, key: str) -> None:
-        """Delete the data value for a given key.
-
-        Args:
-            key: The key of the data value to be deleted.
-
-        """
-        new_data = dict(self._data)
-        del new_data[key]
-        self._data = frozendict(new_data)
+        """Return the data value for a given key."""
+        return self._data[key]
 
     def __contains__(self, key: str) -> bool:
-        """Check whether a data value for the given key exists in the DataItem.
-
-        Args:
-            key: The key to be checked.
-
-        Returns:
-            True if the DataItem contains a data value for the given key.
-
-        """
+        """Check whether a data value for the given key exists in the DataItem."""
         return key in self._data
 
     def __iter__(self) -> Iterator:
-        """Construct an Iterator for the key/value data pairs.
-
-        Returns:
-            The iterator.
-
-        """
+        """Construct an Iterator for the keys."""
         return iter(self._data)
 
     def __len__(self) -> int:
-        """Compute the number of data values in the DataItem.
-
-        Returns:
-            The number of key/value data pairs in the DataItem.
-
-        """
+        """Compute the number of data values in the DataItem."""
         return len(self._data)
 
     def __eq__(self, other: object) -> bool:
-        """Check whether two DataItems have the same key/value data pairs.
-
-        Args:
-            other: The object to compare to.
-
-        Returns:
-            True if other is a DataItem and they contain the same key/value data pairs.
-            False if other is a DataItem and they do not contain the same key/value data pairs.
-            NotImplemented otherwise.
-
-        """
+        """Check equality based on contained data."""
         if isinstance(other, DataItem):
             return self._data == other._data
         return NotImplemented
 
     def __hash__(self) -> int:
-        """Compute the hash of the DataItem.
-
-        Returns:
-            The hash of the DataItem. Only takes into account key/value data pairs, not the metadata.
-
-        """
+        """Compute the hash of the DataItem."""
         return hash(frozenset(self._data.items()))
 
     def items(self) -> Iterator[tuple[str, Any]]:
-        """Construct an iterator for the key/value data pairs of the DataItem.
-
-        Returns:
-            The iterator.
-
-        """
+        """Construct an iterator for the key/value data pairs of the DataItem."""
         return iter(self._data.items())
 
     def keys(self) -> Iterator[str]:
-        """Construct an iterator for the keys of the DataItem.
-
-        Returns:
-            The iterator.
-
-        """
+        """Construct an iterator for the keys of the DataItem."""
         return iter(self._data.keys())
 
     def values(self) -> Iterator[Any]:
-        """Construct an iterator for the data values of the DataItem.
-
-        Returns:
-            The iterator.
-
-        """
+        """Construct an iterator for the data values of the DataItem."""
         return iter(self._data.values())
 
     def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
-        """Get the data value for the given key, or the default value if it doesn't exist.
-
-        Args:
-            key: The key of the requested data value.
-            default: The default value to be returned if the data value doesn't exist.
-
-        Returns:
-            The data value for the key if it exists, default otherwise.
-
-        """
+        """Get the data value for the given key, or the default value if it doesn't exist."""
         return self._data.get(key, default)
 
 
-class ViewStatistics(TypedDict):
-    """Represents the read/write statistics of a DataStreamView.
-
-    Attributes:
-        read: The number of read operations.
-        write: The number of read operations.
-
-    """
-
-    read: int
-    write: int
-
-
-class HistoryBound(ABC):
-    """Represents a bound on the DataStream history before which DataItems may be dropped."""
-
-    @abstractmethod
-    def items_to_drop(self, ds: "DataStream") -> int:
-        """Calculate a bound on the DataStream history before which DataItems may be dropped.
-
-        Is not allowed to call DataStream.clean_history.
-
-        Args:
-            ds: stream to be considered
-
-        Returns:
-            int: The length of the prefix of the history that can be deleted.
-
-        """
-
-
-class NoneBound(HistoryBound):
-    """Marks no DataItems for deletion."""
-
-    @override
-    def items_to_drop(self, ds: "DataStream") -> int:
-        """Calculate a bound on the DataStream history before which DataItems may be dropped.
-
-        Args:
-            ds: stream to be considered
-
-        Returns:
-            int: Always 0 (don't drop any items).
-
-        """
-        return 0
-
-
-class NumberBound(HistoryBound):
-    """Marks all but the n newest DataItems for deletion."""
-
-    _n: int
-
-    def __init__(self, n: int) -> None:
-        """Construct a new NumberBound with a given value of n.
-
-        Args:
-            n: The length of the history to keep.
-
-        """
-        self._n = n
-
-    @override
-    def items_to_drop(self, ds: "DataStream") -> int:
-        """Calculate a bound on the DataStream history before which DataItems may be dropped.
-
-        Args:
-            ds: stream to be considered
-
-        Returns:
-            int: The number of items to drop, i.e., max(0, len - n) where len is the length of the DataStream.
-
-        """
-        length = ds.len_until_first_cursor()
-        if self._n <= length:
-            return length - self._n
-        return 0
-
-
 class DataStream:
-    """Represents a data stream, i.e., a sequence of DataItem, with associated metadata.
+    """Lightweight edge descriptor connecting terms in the dataflow graph.
 
-    The implementation is thread-safe.
+    With bytewax backend, DataStreams are just metadata - the actual data flow
+    is managed entirely by bytewax operators.
     """
 
-    _id: str | None
+    id: str | None
     _owner: "Term"
+    _consumers: list["Term"]  # Terms that consume this stream
+    label: str | None
 
-    _data: SharedQueue[DataItem]
-    _lock: rwlock.RWLockFair
-
-    _history_bound: HistoryBound
-    _history_lock: threading.Lock
-
-    _new_data_callbacks: list[Callable[[DataItem], None]]
-
-    def __init__(self, owner: "Term") -> None:
-        """Initialize an empty DataStream.
+    def __init__(self, owner: "Term", label: str | None = None) -> None:
+        """Initialize a DataStream edge.
 
         Args:
-            owner: The Term that owns the DataStream. Usually the Term whose output stream we're initializing.
-                Potentially used for persistence features.
+        ----
+            owner: The Term that produces data for this stream
+            label: Optional human-readable label for debugging
 
         """
-        self._id = None
+        self.id = None
         self._owner = owner
-
-        self._data = SharedQueue()
-        self._lock = rwlock.RWLockFair()
-
-        self._history_bound = NoneBound()
-        self._history_lock = threading.Lock()
-
-        self._new_data_callbacks = []
+        self._consumers = []
+        self.label = label
 
     def _set_id(self, new_id: str) -> Self:
         """Set ID of the DataStream.
 
         Args:
+        ----
             new_id: The ID to be set.
 
         Returns:
+        -------
             The DataStream after modification.
 
         """
-        with self._lock.gen_wlock():  # LIVENESS: Doesn't request another lock.
-            self.id = new_id
+        self.id = new_id
         return self
 
-    def get_id(self) -> str | None:
-        """Get ID of the DataStream.
+    def append(self, di: DataItem) -> Self:  # noqa: ARG002
+        """No-op append for backward compatibility with threading-based sources.
 
-        Returns:
-            The stream's ID or None if not set.
-
-        """
-        with self._lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
-            return self.id
-
-    def __len__(self) -> int:
-        """Calculate the length of the DataStream, i.e., the number of DataItems.
-
-        Returns:
-            The number of DataItems in the DataStream.
-
-        """
-        # SAFETY: From safety of SharedQueue.__len__.
-        return len(self._data)
-
-    @overload
-    def __getitem__(self, index: int) -> DataItem: ...
-
-    @overload
-    def __getitem__(self, index: slice) -> list[DataItem]: ...
-
-    def __getitem__(self, index: int | slice) -> DataItem | list[DataItem]:
-        """Get DataItem(s) with a given index or slice.
+        Bytewax backend doesn't use this - it pulls directly from generators.
+        This exists only for legacy source code that still calls start() with threading.
 
         Args:
-            index: The item(s) index or slice.
+        ----
+            di: The DataItem (ignored)
 
         Returns:
-            The requested item(s). A single DataItem if index is an int. A list of DataItems if index is a slice.
-
-        Raises:
-            IndexError: If index is invalid.
+        -------
+            self
 
         """
-        # SAFETY: From safety of SharedQueue.__getitem__.
-        try:
-            return self._data[index]
-        except IndexError as e:
-            raise IndexError from e
+        # No-op: bytewax doesn't use append, pulls from generators instead
+        return self
 
     def __str__(self) -> str:
-        """Construct a string description of the DataStream.
-
-        Returns:
-            A string of the format "DataStream(id={id}): [{data_items}]" where {id} is the DataStream's ID
-                and {data_items} are the DataItems.
-
-        """
-        # SAFETY: Use of _lock for ID and from safety of SharedQueue.__len__.
-        with self._lock.gen_rlock():
-            return f"DataStream(id={self.get_id()}): {self._data.to_list()}"
-
-    def append(self, di: DataItem) -> Self:
-        """Append a data item to the end of the DataStream.
-
-        Args:
-            di: The DataItem to append.
-
-        Returns:
-            The DataStream after appending the DataItem.
-
-        """
-        # SAFETY: From safety of SharedQueue.append and clean_history.
-        with (
-            self._history_lock
-        ):  # LIVENESS: Doesn't request another lock from DataStream, thus follows from liveness of SharedQueue.append.
-            self._data.append(di)
-        self.clean_history()
-        for fun in self._new_data_callbacks:
-            fun(di)
-        return self
-
-    def set_history_bound(self, history_bound: HistoryBound) -> Self:
-        """Set the history bounds of the DataStream.
-
-        Args:
-            history_bound: The HistoryBound to be set.
-
-        Returns:
-            The DataStream after setting the history bound.
-
-        """
-        with self._lock.gen_wlock():  # LIVENESS: Doesn't request another lock.
-            self._history_bound = history_bound
-        self.clean_history()
-        return self
-
-    def clean_history(self) -> Self:
-        """Drop DataItems according to the current history bound.
-
-        If another call to clean_history or a call to append is currently running, returns without modification.
-
-        Returns:
-            The DataStream after dropping the DataItems.
-
-        """
-        # SAFETY: Use of mutex disallows concurrent modification of the SharedQueue.
-        #         The value of cnt is thus consistent with the number of items to be dropped.
-        have_lock = self._history_lock.acquire(blocking=False)  # LIVENESS: nonblocking
-        if not have_lock:
-            return self
-        try:
-            cnt = self._history_bound.items_to_drop(self)
-            self._data.drop_front(cnt=cnt)
-        finally:
-            self._history_lock.release()
-        return self
-
-    def to_list(self) -> list[DataItem]:
-        """Construct a list of all DataItems of the DataStream.
-
-        Returns:
-            The list of DataItems.
-
-        """
-        # SAFETY: From safety of SharedQueue.to_list.
-        return self._data.to_list()
-
-    def _create_queue_view(self) -> SharedQueueView[DataItem]:
-        """Create a new associated SharedQueueView to the underlying SharedQueue.
-
-        Returns:
-            The new SharedQueueView.
-
-        """
-        # SAFETY: From safety of SharedQueue.create_view.
-        return self._data.create_view()
-
-    def len_until_first_cursor(self) -> int:
-        """Calculate the length of the DataStream until the first cursor position of a associated SharedQueueView.
-
-        Returns:
-            The length until the first cursor.
-
-        """
-        # SAFETY: From safety of SharedQueue.len_until_first_cursor
-        return self._data.len_until_first_cursor()
-
-    def register_new_data_callback(self, callback: Callable[[DataItem], None]) -> None:
-        """Register a "new data" callback function for the DataStream.
-
-        Args:
-            callback: the callback function. Is called whenever a new DataItem is appended to the DataStream
-
-        """
-        with self._lock.gen_wlock():  # LIVENESS: Doesn't request another lock
-            self._new_data_callbacks.append(callback)
-
-
-class DataStreamView:
-    """Represents a view into a data stream, i.e., a prefix of the DataStream, with associated metadata.
-
-    The implementation is thread-safe.
-    """
-
-    _id: str | None
-    _owner: "Term"
-
-    _ds: DataStream
-    _view: SharedQueueView
-
-    _lock: rwlock.RWLockFair
-
-    def __init__(self, ds: DataStream, owner: "Term") -> None:
-        """Initialize a new DataStreamView.
-
-        Args:
-            ds: The DataStream to which
-            owner: The Term that owns the DataStream. Usually the Term whose output stream we're initializing.
-                Potentially used for persistence features.
-
-        """
-        self._id = None
-        self._owner = owner
-
-        self._ds = ds
-        self._view = ds._create_queue_view()  # noqa: SLF001
-
-        self._lock = rwlock.RWLockFair()
-
-    def _set_id(self, new_id: str) -> Self:
-        """Set ID of the DataStreamView.
-
-        Args:
-            new_id: The ID to be set.
-
-        Returns:
-            The DataStreamView after modification.
-
-        """
-        with self._lock.gen_wlock():  # LIVENESS: Doesn't request another lock.
-            self._id = new_id
-        return self
-
-    def get_id(self) -> str | None:
-        """Get ID of the DataStreamView.
-
-        Returns:
-            The view's ID or None if not set.
-
-        """
-        with self._lock.gen_rlock():  # LIVENESS: Doesn't request another lock.
-            return self._id
-
-    def __len__(self) -> int:
-        """Calculate the length of the DataStreamView, i.e., the number of DataItems until its cursor.
-
-        Returns:
-            The number of DataItems in the underlying DataStream until the DataStreamView's cursor.
-
-        """
-        # SAFETY: From safety of SharedQueueView.__len__.
-        return len(self._view)
-
-    @overload
-    def __getitem__(self, index: int) -> DataItem: ...
-
-    @overload
-    def __getitem__(self, index: slice) -> list[DataItem]: ...
-
-    def __getitem__(self, index: int | slice) -> DataItem | list[DataItem]:
-        """Get DataItem(s) with a given index or slice.
-
-        Args:
-            index: The item(s) index or slice.
-
-        Returns:
-            The requested item(s). A single DataItem if index is an int. A list of DataItems if index is a slice.
-
-        Raises:
-            IndexError: If index is invalid.
-
-        """
-        # SAFETY: From safety of SharedQueueView.__getitem__.
-        try:
-            return self._view[index]
-        except IndexError as e:
-            raise IndexError from e
-
-    def __str__(self) -> str:
-        """Construct a string description of the DataStreamView.
-
-        Returns:
-            A string of the format "DataStreamView(id={id}): [{data_items}]" where {id} is the DataStreamView's ID
-                and {data_items} are the DataItems.
-
-        """
-        # SAFETY: Use of _lock for ID and from safety of SharedQueueView.to_list.
-        with self._lock.gen_rlock():
-            return f"DataStreamView(id={self.get_id()}): {self._view.to_list()}"
-
-    def peek(self) -> bool:
-        """Check whether a new DataItem is ready.
-
-        Returns:
-            True iff a new DataItem is ready (i.e., a call to next will not block)
-
-        """
-        return self._view.peek()
-
-    def next(self) -> None:
-        """Advance the DataStreamView's cursor by one DataItem.
-
-        Blocks if no item is available.
-
-        """
-        # SAFETY: From safety of SharedQueueView.next.
-        self._view.next()
-
-    def tail(self, n: int) -> list[DataItem]:
-        """Return the tail."""
-        raise NotImplementedError
-        if n <= 0:
-            raise IndexError(n)
-        return self[-n:]
-
-    @property
-    def stats(self) -> ViewStatistics:
-        """Return statistics."""
-        raise NotImplementedError
-        return {
-            "read": self.pos,
-            "write": len(self.ds),
-        }
+        """Return string representation."""
+        return f"DataStream(id={self.id}, owner={self._owner.name}, label={self.label})"
 
 
 class Term(ABC):
     """The basic Term class.
 
-    Attributes:
+    Attributes
+    ----------
         name (str): The name of the Term. This will also be the name
             of the output stream.
         id (str, optional): Unique id of the Term, or None.
@@ -806,6 +274,7 @@ class Term(ABC):
     id: str | None
     _outputs: dict[str, DataStream]
     _parent: "Term | None"
+    stats: Any | None
 
     def __init__(self, name: str | None = None, **kwargs) -> None:  # noqa: ANN003, ARG002
         """Create a Term."""
@@ -814,10 +283,23 @@ class Term(ABC):
         self.id = None
         self._outputs = {}
         self._parent = None
+        self.stats = None
         if name is None:
             self.name = str(type(self).__name__)
         else:
             self.name = name
+
+    def iter_inputs(self) -> dict[str, DataStream]:
+        """Return inbound inputs; default empty for sources."""
+        return {}
+
+    def requires_stateful(self) -> bool:
+        """Return True if this term needs ordered, sequential processing."""
+        return False
+
+    def processes_data(self) -> bool:
+        """Return True if this term processes upstream data."""
+        return False
 
     @abstractmethod
     def _add_input(self, name: str, ds: DataStream) -> None:
@@ -861,17 +343,38 @@ class Term(ABC):
         """Cancel the Term."""
         return
 
+    def connect_output_to(self, target: "Term", *, output_name: str | None = None, input_name: str) -> None:
+        """Connect this term's output to another term's input.
+
+        Args:
+            target: The term to connect to
+            output_name: Which output stream to use (defaults to self.name)
+            input_name: What to call this input on the target term
+
+        """
+        if output_name is None:
+            output_name = self.name
+
+        if output_name not in self._outputs:
+            msg = f"Output '{output_name}' not found in term {self.name}"
+            raise ValueError(msg)
+
+        stream = self._outputs[output_name]
+        target._add_input(input_name, stream)  # noqa: SLF001
+
     def __str__(self) -> str:
         """Return a str representation."""
         return f"Term({self.name})"
 
 
 class SourceTerm(Term):
-    """Term that acts as a source."""
+    """Term that acts as a source - generates DataItems via iterator.
 
-    _thread: threading.Thread | None
+    With bytewax backend, SourceTerms provide a generate() method that yields DataItems.
+    Bytewax pulls from this generator - no manual threading needed.
+    """
+
     _output: DataStream
-    _stop_event: threading.Event
     state: State
 
     def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
@@ -879,8 +382,6 @@ class SourceTerm(Term):
         super().__init__(*args, **kwargs)
         self._output = DataStream(owner=self)
         self._outputs[self.name] = self._output
-        self._thread = None  # initially no thread is running
-        self._stop_event = threading.Event()
         self.state = {}
 
     def _add_input(self, name: str, ds: DataStream) -> None:  # noqa: ARG002
@@ -893,76 +394,79 @@ class SourceTerm(Term):
         # set DataStream ID
         self._output._set_id(f"{self.id}:output")  # noqa: SLF001
 
-    def run(self) -> None:
-        """Overwrite this function to produce the source's output."""
+    @abstractmethod
+    def generate(self) -> Iterator[DataItem]:
+        """Generate DataItems - bytewax pulls from this iterator.
+
+        Override this method to produce DataItems. The bytewax backend will
+        consume the iterator. No need to call output() or append to streams.
+
+        Yields
+        ------
+            DataItems to be processed downstream
+
+        """
 
     def enter(self) -> None:
-        """Overwrite this function to initialize the source term's thread."""
+        """Overwrite this function to initialize the source term."""
 
     def exit(self) -> None:
-        """Overwrite this function to clean up the source term's thread."""
+        """Overwrite this function to clean up the source term."""
 
     def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
-        """Start the source term's thread."""
+        """Start execution using bytewax backend (synchronous, blocking)."""
         if not self.id:
             self._set_id("root")
 
-        def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
-            self.enter()
-            try:
-                self.run()
-                self.eos()
-            finally:
-                self.exit()
+        from logicsponge.core.flow_backend import run_flow_graph  # noqa: PLC0415  # lazy to avoid import cycle
+        from logicsponge.core.graph import TermGraph  # noqa: PLC0415  # lazy to avoid import cycle
 
-        # check if no thread is already running
-        if self._thread is None:
-            # create a new thread
-            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
-            self._thread.start()
+        # Collect all connected terms
+        all_terms = self._collect_connected_terms()
+
+        # Build graph
+        graph = TermGraph()
+        for term in all_terms:
+            if not isinstance(term, CompositeTerm):
+                graph.add_term(term)
+
+        # Add connections
+        for term in all_terms:
+            for stream in term.iter_inputs().values():
+                graph.connect_stream(stream, term)
+
+        # Run bytewax dataflow (blocks until completion)
+        run_flow_graph(graph)
+
+    def _collect_connected_terms(self) -> list["Term"]:
+        """Recursively collect all terms connected to this term."""
+        collected = []
+        visited = set()
+
+        def visit(term: Term) -> None:
+            if id(term) in visited:
+                return
+            visited.add(id(term))
+            collected.append(term)
+
+            # Visit children of composite terms
+            if isinstance(term, CompositeTerm):
+                visit(term.term_left)
+                visit(term.term_right)
+
+            # Visit downstream terms (consumers of output streams)
+            for stream in term._outputs.values():  # noqa: SLF001
+                for consumer in stream._consumers:  # noqa: SLF001
+                    visit(consumer)
+
+        visit(self)
+        return collected
 
     def stop(self) -> None:
-        """Stop the Source."""
-        self._stop_event.set()
-        logger.debug("%s stopped", self)
+        """No-op stop for bytewax backend."""
 
     def join(self) -> None:
-        """Wait for the source thread to terminate."""
-        if self._thread is not None:
-            self._thread.join()
-
-    def output(self, data: DataItem) -> None:
-        """Output data."""
-        data.set_time_to_now()
-        self._output.append(data)
-
-    def eos(self) -> None:
-        """Signal an EOS (end of stream) for this source."""
-        eos_di = DataItem().set_control_signal(Control.EOS)
-        self.output(eos_di)
-        self.stop()
-
-    @property
-    def stats(self) -> dict:
-        """Return the source's statistics."""
-        last_times = [di.time for di in self._output.to_list()]
-        latency_avg = (last_times[-1] - last_times[0]) / len(last_times) if len(last_times) > 1 else float("nan")
-        latency_max = (
-            max(last_times[i] - last_times[i - 1] for i in range(1, len(last_times)))
-            if len(last_times) > 1
-            else float("nan")
-        )
-        term_type = self.__class__.__name__
-        return {
-            "name": self.name,
-            "type": term_type,
-            "output": {
-                "id": self._output.id,
-                "write": len(self._output),
-                "latency_avg": latency_avg,
-                "latency_max": latency_max,
-            },
-        }
+        """No-op join for bytewax backend (execution is synchronous)."""
 
 
 class ConstantSourceTerm(SourceTerm):
@@ -974,6 +478,7 @@ class ConstantSourceTerm(SourceTerm):
         """Create a ConstantSourceTerm object.
 
         Args:
+        ----
             items (list[DataItem]): List of data items to output.
             *args: Additional args.
             **kwargs: Additional kwargs.
@@ -982,25 +487,22 @@ class ConstantSourceTerm(SourceTerm):
         super().__init__(*args, **kwargs)
         self._items = items
 
-    def run(self) -> None:
-        """Output all items in the list and then terminate."""
-        for item in self._items:
-            self.output(item)
+    def generate(self) -> Iterator[DataItem]:
+        """Generate all items in the list."""
+        yield from self._items
 
 
 class FunctionTerm(Term):
-    """A Term that receives data, performs a function on it, and outputs the resulting data.
+    """Term that maps one input item to one output item (or filters it out).
 
-    Attributes:
+    Attributes
+    ----------
         state (State): The Term's state. Any state should go in here.
 
     """
 
-    _inputs: dict[str, DataStreamView]  # name -> input stream view
+    _inputs: dict[str, DataStream]  # name -> input stream
     _output: DataStream
-    _thread: threading.Thread | None
-    _stop_event: threading.Event
-    _latency_queue: LatencyQueue
     state: State
 
     def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
@@ -1009,443 +511,248 @@ class FunctionTerm(Term):
         self._inputs = {}
         self._output = DataStream(owner=self)
         self._outputs[self.name] = self._output
-        self._thread = None  # initially no thread is running
-        self._stop_event = threading.Event()
-        self._latency_queue = LatencyQueue()
         self.state = {}
+        self._stateful = False
+
+    def iter_inputs(self) -> dict[str, DataStream]:
+        """Return inbound inputs."""
+        return self._inputs
 
     def _add_input(self, name: str, ds: DataStream) -> None:
         if name in self._inputs:
             msg = f"Term {self.__class__}: tried to add input stream '{name}' but it already exists in the Term"
             raise ValueError(msg)
-        self._inputs[name] = DataStreamView(ds=ds, owner=self)
+        self._inputs[name] = ds
+        # Register self as a consumer of this stream
+        if self not in ds._consumers:  # noqa: SLF001
+            ds._consumers.append(self)  # noqa: SLF001
 
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
 
         # set DataStream IDs
         self._output._set_id(f"{self.id}:output")  # noqa: SLF001
-        for name, ds in self._inputs.items():
-            ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
+        for name, stream in self._inputs.items():
+            stream._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
 
-    def eos(self) -> None:
-        """Signal an EOS (end of stream) for the function term."""
-        eos_di = DataItem().set_control_signal(Control.EOS)
-        self.output(eos_di)
-        self.stop()
+    def f(self, di: DataItem) -> DataItem | None:
+        """Process a single DataItem (may be hierarchical with nested DataItems).
 
-    def f(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
-        """Execute f on reception of a new DataItem."""
+        Args:
+        ----
+            di: Input DataItem. If term has multiple inputs with wait-for-all semantics,
+                this will be a hierarchical DataItem like {"source1": DataItem(...), "source2": DataItem(...)}
+
+        Returns:
+        -------
+            Processed DataItem, or None to filter out the item
+
+        """
         raise NotImplementedError
 
-    def run(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-        """Execute run and terminate afterwards."""
-        raise NotImplementedError
+    def apply(self, di: DataItem) -> list[DataItem]:
+        """Apply mapping semantics and normalize to a list."""
+        result = self.f(di)
+        return [result] if result is not None else []
 
-    def stop(self) -> None:
-        """Stop the Term."""
-        self._stop_event.set()
-        logger.debug("%s stopped", self)
+    def processes_data(self) -> bool:
+        """FunctionTerms process upstream data."""
+        return True
 
-    def join(self) -> None:
-        """Wait until the Term terminates."""
-        if self._thread is not None:
-            self._thread.join()
+    def requires_stateful(self) -> bool:
+        """Return True if this term needs ordered, sequential processing."""
+        return self._stateful
 
     def enter(self) -> None:
-        """Overwrite this function to initialize the function term's thread."""
+        """Overwrite this function to initialize the function term."""
 
     def exit(self) -> None:
-        """Overwrite this function to clean up the function term's thread."""
+        """Overwrite this function to clean up the function term."""
 
-    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002, C901, PLR0912, PLR0915
-        """Start the function term's thread."""
+    def stop(self) -> None:
+        """No-op stop for bytewax backend."""
+
+    def join(self) -> None:
+        """No-op join for bytewax backend (execution is synchronous)."""
+
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start execution using bytewax backend (synchronous, blocking)."""
         if not self.id:
             self._set_id("root")
 
-        # different execute versions
-        def execute_f_dataitem(stop_event: threading.Event) -> None:
-            # take the 1st stream if there are multiple input streams
-            #   in case there are no input streams, set to None
-            #   and stop execution
-            input_stream: DataStreamView | None = next(iter(self._inputs.values()), None)
-            if input_stream is None:
+        from logicsponge.core.flow_backend import run_flow_graph  # noqa: PLC0415  # lazy to avoid import cycle
+        from logicsponge.core.graph import TermGraph  # noqa: PLC0415  # lazy to avoid import cycle
+
+        # Collect all connected terms
+        all_terms = self._collect_connected_terms()
+
+        # Build graph
+        graph = TermGraph()
+        for term in all_terms:
+            if not isinstance(term, CompositeTerm):
+                graph.add_term(term)
+
+        # Add connections
+        for term in all_terms:
+            for stream in term.iter_inputs().values():
+                graph.connect_stream(stream, term)
+
+        # Run bytewax dataflow (blocks until completion)
+        run_flow_graph(graph)
+
+    def _collect_connected_terms(self) -> list["Term"]:
+        """Recursively collect all terms connected to this term."""
+        collected = []
+        visited = set()
+
+        def visit(term: Term) -> None:
+            if id(term) in visited:
                 return
+            visited.add(id(term))
+            collected.append(term)
 
-            self.enter()
-            try:
-                while not stop_event.is_set():
-                    input_stream.next()
-                    self._latency_queue.tic()
+            # Visit children of composite terms
+            if isinstance(term, CompositeTerm):
+                visit(term.term_left)
+                visit(term.term_right)
 
-                    last_di = input_stream[-1]
-                    if last_di.get_control_signal(Control.EOS):
-                        # received an EOS
-                        self.eos()
-                    else:
-                        # pass the last data item from the stream to f
-                        out = self.f(last_di)
-                        if out is not None:
-                            self.output(out)
-                        # measure latency only for f(), not for control
-                        self._latency_queue.toc()
-            finally:
-                self.exit()
+            # Visit upstream terms (producers of input streams)
+            for stream in term.iter_inputs().values():
+                visit(stream._owner)  # noqa: SLF001
 
-        def execute_f_tuple_dataitem(stop_event: threading.Event) -> None:
-            inputs: list[DataStreamView] = list(self._inputs.values())
+            # Visit downstream terms (consumers of output streams)
+            for stream in term._outputs.values():  # noqa: SLF001
+                for consumer in stream._consumers:  # noqa: SLF001
+                    visit(consumer)
 
-            self.enter()
-            try:
-                while not stop_event.is_set():
-                    for input_stream in inputs:
-                        input_stream.next()
-                    self._latency_queue.tic()
-
-                    input_values = tuple(input_stream[-1] for input_stream in inputs)
-
-                    if any(di.get_control_signal(Control.EOS) for di in input_values):
-                        # we stop if any input stream signals EOS
-                        self.eos()
-                    else:
-                        out = self.f(input_values)
-                        if out is not None:
-                            self.output(out)
-                        # measure latency only for f(), not for control
-                        self._latency_queue.toc()
-            finally:
-                self.exit()
-
-        def execute_f_args_dataitem(stop_event: threading.Event) -> None:
-            inputs: list[DataStreamView] = list(self._inputs.values())
-
-            self.enter()
-            try:
-                while not stop_event.is_set():
-                    for input_stream in inputs:
-                        input_stream.next()
-                    self._latency_queue.tic()
-                    input_values = tuple(input_stream[-1] for input_stream in inputs)
-                    if any(di.get_control_signal(Control.EOS) for di in input_values):
-                        # we stop if any input stream signals EOS
-                        self.eos()
-                    else:
-                        out = self.f(*input_values)
-                        if out is not None:
-                            self.output(out)
-                        self._latency_queue.toc()
-            finally:
-                self.exit()
-
-        def execute_f_dict_dataitem(stop_event: threading.Event) -> None:
-            inputs: dict[str, DataStreamView] = self._inputs
-
-            self.enter()
-            try:
-                while not stop_event.is_set():
-                    for input_stream in inputs.values():
-                        input_stream.next()
-                    self._latency_queue.tic()
-                    input_dict = {key: input_stream[-1] for key, input_stream in inputs.items()}
-                    if any(di.get_control_signal(Control.EOS) for di in input_dict.values()):
-                        # we stop if any input stream signals EOS
-                        self.eos()
-                    else:
-                        out = self.f(input_dict)
-                        if out is not None:
-                            self.output(out)
-                        self._latency_queue.toc()
-            finally:
-                self.exit()
-
-        def execute_run_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
-            inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
-            if inputs is None:
-                return
-
-            self.enter()
-            try:
-                self.run(inputs)
-                self.eos()
-            finally:
-                self.exit()
-
-        def execute_run_tuple_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
-            inputs = tuple(self._inputs.values())
-
-            self.enter()
-            try:
-                self.run(inputs)
-                self.eos()
-            finally:
-                self.exit()
-
-        def execute_run_args_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
-            inputs = tuple(self._inputs.values())
-
-            self.enter()
-            try:
-                self.run(*inputs)
-                self.eos()
-            finally:
-                self.exit()
-
-        def execute_run_dict_datastream(stop_event: threading.Event) -> None:  # noqa: ARG001
-            inputs: dict[str, DataStreamView] = self._inputs
-
-            self.enter()
-            try:
-                self.run(inputs)
-                self.eos()
-            finally:
-                self.exit()
-
-        # check which method was overwritten
-        annotations_run = get_annotations(self, "run")
-        annotations_f = get_annotations(self, "f")
-
-        if annotations_run is None and annotations_f is None:
-            msg = f"class {self.__class__}: overwrite run() or f()"
-            raise ValueError(msg)
-
-        if annotations_run is not None and annotations_f is not None:
-            msg = f"class {self.__class__}: overwrite either run() or f(), but not both"
-            raise ValueError(msg)
-
-        execute = None
-        if annotations_run is not None:
-            if len(annotations_run) == 1:
-                if annotations_run[0] == DataStreamView:
-                    execute = execute_run_datastream
-                elif annotations_run[0] == tuple[DataStreamView]:
-                    execute = execute_run_tuple_datastream
-                elif annotations_run[0] == dict[str, DataStreamView]:
-                    execute = execute_run_dict_datastream
-                else:
-                    msg = f"class {self.__class__}: could not match run() with types {annotations_run}"
-                    raise ValueError(msg)
-
-            elif len(annotations_run) > 1:
-                if all(param == DataStreamView for param in annotations_run):
-                    execute = execute_run_args_datastream
-                else:
-                    msg = f"class {self.__class__}: could not match run() with types {annotations_run}"
-                    raise ValueError(msg)
-            else:
-                msg = f"class {self.__class__}: could not match run() with types {annotations_run}"
-                raise ValueError(msg)
-
-        elif annotations_f is not None:
-            if len(annotations_f) == 1:
-                if annotations_f[0] == DataItem:
-                    execute = execute_f_dataitem
-                elif annotations_f[0] == tuple[DataItem]:
-                    execute = execute_f_tuple_dataitem
-                elif annotations_f[0] == dict[str, DataItem]:
-                    execute = execute_f_dict_dataitem
-                else:
-                    msg = f"class {self.__class__}: could not match f() with types {annotations_f}"
-                    raise ValueError(msg)
-
-            elif len(annotations_f) > 1:
-                if all(param == DataItem for param in annotations_f):
-                    execute = execute_f_args_dataitem
-                else:
-                    msg = f"class {self.__class__}: could not match f() with types {annotations_run}"
-                    raise ValueError(msg)
-
-            else:
-                msg = f"class {self.__class__}: could not match f() with types {annotations_f}"
-                raise ValueError(msg)
-
-        else:
-            msg = f"class {self.__class__}: could not find f() or run() with supported types."
-            raise ValueError(msg)
-
-        if execute is None:
-            msg = "should not happen"
-            raise ValueError(msg)
-
-        # set history bound if run wasn't overwritten
-        annotations_f = get_annotations(self, "f")
-        if annotations_f:
-            for dsv in self._inputs.values():
-                dsv._ds.set_history_bound(NumberBound(1))  # noqa: SLF001
-
-        # check if no thread is already running
-        if self._thread is None:
-            # create a new thread
-            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
-            self._thread.start()
-
-    def next(self, input_stream: DataStreamView) -> None:
-        """Wait for next data on input stream."""
-        input_stream.next()
-
-    def output(self, data: DataItem | None) -> None:
-        """Append data to the output stream if data is not None."""
-        if data is not None:
-            self._output.append(data)
-
-    @property
-    def stats(self) -> dict:
-        """Return statistics.
-
-        TODO: fix read/write statistics.
-        """
-        term_type = self.__class__.__name__
-        return {
-            "name": self.name,
-            "type": term_type,
-            "output": {
-                "id": self._output.id,
-                "write": len(self._output),
-                "latency_avg": self._latency_queue.avg,
-                "latency_max": self._latency_queue.max,
-            },
-            "inputs": {dsv.get_id(): {"read": 0, "write": 0} for dsv in self._inputs.values()},  # TODO: fix
-        }
+        visit(self)
+        return collected
 
 
-class DynamicSpawnTerm(Term):
-    """Spawns new terms for each unique filter_key. Dispatches the inputs and merges the outputs."""
+class StatefulFunctionTerm(FunctionTerm):
+    """Marker class for FunctionTerms that require sequential processing.
 
-    _filter_key: str
-    _spawn_fun: Callable[[Hashable], Term]
-    _spawned_streams: dict[Hashable, DataStream]
-    _spawned_terms: dict[Hashable, Term]
-    _thread: threading.Thread | None
-    _output: DataStream
-    _outputs: dict[str, DataStream]
+    Bytewax will ensure DataItems are processed in order for StatefulFunctionTerms.
+    Use this for terms that maintain state across DataItems and need ordering guarantees.
+    """
 
-    def __init__(self, filter_key: str, spawn_fun: Callable[[Hashable], Term], *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-        """Create a DynamicSpawnTerm object."""
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a stateful FunctionTerm."""
         super().__init__(*args, **kwargs)
-        self._filter_key = filter_key
-        self._spawn_fun = spawn_fun
-        self._spawned_streams = {}
-        self._spawned_terms = {}
-        self._thread = None
+        self._stateful = True
 
+    def requires_stateful(self) -> bool:
+        """Stateful function terms need ordered processing."""
+        return True
+
+
+class FlatMapTerm(Term):
+    """Term that maps one input item to zero or more output items."""
+
+    _inputs: dict[str, DataStream]
+    _output: DataStream
+    state: State
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a FlatMapTerm object."""
+        super().__init__(*args, **kwargs)
         self._inputs = {}
-        self._stop_event = threading.Event()
-        self._latency_queue = LatencyQueue()
-        self.state = {}
         self._output = DataStream(owner=self)
         self._outputs[self.name] = self._output
+        self.state = {}
+
+    def iter_inputs(self) -> dict[str, DataStream]:
+        """Return inbound inputs."""
+        return self._inputs
 
     def _add_input(self, name: str, ds: DataStream) -> None:
         if name in self._inputs:
             msg = f"Term {self.__class__}: tried to add input stream '{name}' but it already exists in the Term"
             raise ValueError(msg)
-        self._inputs[name] = DataStreamView(ds=ds, owner=self)
+        self._inputs[name] = ds
+        if self not in ds._consumers:  # noqa: SLF001
+            ds._consumers.append(self)  # noqa: SLF001
 
     def _set_id(self, new_id: str) -> None:
         self.id = new_id
-
-        # set DataStream IDs
         self._output._set_id(f"{self.id}:output")  # noqa: SLF001
-        for name, ds in self._inputs.items():
-            ds._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
+        for name, stream in self._inputs.items():
+            stream._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False) -> None:
-        """Start the Term."""
-        if persistent:
-            msg = "Persistence not implemented for DynamicSpawnTerms"
-            raise NotImplementedError(msg)
+    def f(self, di: DataItem) -> Iterable[DataItem] | None:
+        """Process a single DataItem and return an iterable of DataItems (or None)."""
+        raise NotImplementedError
 
-        def execute(stop_event: threading.Event) -> None:  # noqa: ARG001
-            inputs: DataStreamView | None = next(iter(self._inputs.values()), None)
-            if inputs is None:
-                return
+    def apply(self, di: DataItem) -> list[DataItem]:
+        """Apply flat-map semantics and normalize to a list."""
+        result = self.f(di)
+        if result is None:
+            return []
+        return list(result)
 
-            self.enter()
-            try:
-                self.run(inputs)
-                self.eos()
-            finally:
-                self.exit()
-
-        # check if no thread is already running
-        if self._thread is None:
-            # create a new thread
-            self._thread = threading.Thread(target=execute, name=str(self), args=(self._stop_event,))
-            self._thread.start()
-
-    def run(self, ds: DataStreamView) -> None:
-        """Execute run."""
-        ds.next()
-        while True:  # until received EOS
-            di = ds[-1]
-
-            if di.get_control_signal(Control.EOS):
-                for d in self._spawned_streams.values():
-                    d.append(di)
-                break
-
-            iden = di[self._filter_key]
-            if iden not in self._spawned_terms:
-                new_ds = DataStream(self)
-                eos_filter = EosFilter()
-                new_term = self._spawn_fun(iden) * eos_filter
-                new_term._set_id(f"id:{iden}")  # noqa: SLF001
-                new_term._add_input(f"ds:{iden}", new_ds)  # noqa: SLF001
-                eos_filter._outputs = self._outputs  # noqa: SLF001
-                eos_filter._output = self._output  # noqa: SLF001 # TODO: new_term may not have _output
-                new_term.start()
-
-                self._spawned_streams[iden] = new_ds
-                self._spawned_terms[iden] = new_term
-
-            self._spawned_streams[iden].append(di)
-            ds.next()
-
-        # wait for all spawned terms to terminate
-        for term in self._spawned_terms.values():
-            term.join()
-
-        self._output.append(DataItem().set_control_signal(Control.EOS))
-
-    def eos(self) -> None:
-        """Signal an EOS (end of stream) for the term."""
-        eos_di = DataItem().set_control_signal(Control.EOS)
-        self._output.append(eos_di)
-        self.stop()
+    def processes_data(self) -> bool:
+        """FlatMapTerms process upstream data."""
+        return True
 
     def enter(self) -> None:
-        """Overwrite this function to initialize the term's thread."""
+        """Overwrite this function to initialize the term."""
 
     def exit(self) -> None:
-        """Overwrite this function to clean up the term's thread."""
+        """Overwrite this function to clean up the term."""
 
     def stop(self) -> None:
-        """Stop the Term."""
-        self._stop_event.set()
-        logger.debug("%s stopped", self)
+        """No-op stop for bytewax backend."""
 
     def join(self) -> None:
-        """Wait for the Term to terminate."""
-        if self._thread is not None:
-            self._thread.join()
+        """No-op join for bytewax backend (execution is synchronous)."""
 
-    @property
-    def stats(self) -> dict:
-        """Return the statistics.
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start execution using bytewax backend (synchronous, blocking)."""
+        if not self.id:
+            self._set_id("root")
 
-        TODO: fix read/write statistics.
-        """
-        term_type = self.__class__.__name__
-        return {
-            "name": self.name,
-            "type": term_type,
-            "output": {
-                "id": self._output.id,
-                "write": len(self._output),
-                "latency_avg": self._latency_queue.avg,
-                "latency_max": self._latency_queue.max,
-            },
-            "inputs": {dsv.get_id(): {"read": 0, "write": 0} for dsv in self._inputs.values()},  # TODO: fix
-        }
+        from logicsponge.core.flow_backend import run_flow_graph  # noqa: PLC0415  # lazy to avoid import cycle
+        from logicsponge.core.graph import TermGraph  # noqa: PLC0415  # lazy to avoid import cycle
+
+        all_terms = self._collect_connected_terms()
+
+        graph = TermGraph()
+        for term in all_terms:
+            if not isinstance(term, CompositeTerm):
+                graph.add_term(term)
+
+        for term in all_terms:
+            if isinstance(term, (FunctionTerm, FlatMapTerm)):
+                for stream in term._inputs.values():  # noqa: SLF001
+                    graph.connect_stream(stream, term)
+
+        run_flow_graph(graph)
+
+    def _collect_connected_terms(self) -> list["Term"]:
+        """Recursively collect all terms connected to this term."""
+        collected = []
+        visited = set()
+
+        def visit(term: Term) -> None:
+            if id(term) in visited:
+                return
+            visited.add(id(term))
+            collected.append(term)
+
+            if isinstance(term, CompositeTerm):
+                visit(term.term_left)
+                visit(term.term_right)
+
+            if isinstance(term, (FunctionTerm, FlatMapTerm)):
+                for stream in term._inputs.values():  # noqa: SLF001
+                    visit(stream._owner)  # noqa: SLF001
+
+            for stream in term._outputs.values():  # noqa: SLF001
+                for consumer in stream._consumers:  # noqa: SLF001
+                    visit(consumer)
+
+        visit(self)
+        return collected
 
 
 class CompositeTerm(Term):
@@ -1463,13 +770,58 @@ class CompositeTerm(Term):
         self.term_left._parent = self  # noqa: SLF001
         self.term_right._parent = self  # noqa: SLF001
 
-    def start(self, *, persistent: bool = False) -> None:
-        """Start the Term."""
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start the Term using bytewax backend (synchronous, blocking)."""
         if not self.id:
             self._set_id("root")
 
-        self.term_left.start(persistent=persistent)
-        self.term_right.start(persistent=persistent)
+        from logicsponge.core.flow_backend import run_flow_graph  # noqa: PLC0415  # lazy to avoid import cycle
+        from logicsponge.core.graph import TermGraph  # noqa: PLC0415  # lazy to avoid import cycle
+
+        # Collect all connected terms from both sides
+        all_terms = self._collect_connected_terms()
+
+        # Build graph
+        graph = TermGraph()
+        for term in all_terms:
+            if not isinstance(term, CompositeTerm):
+                graph.add_term(term)
+
+        # Add connections
+        for term in all_terms:
+            for stream in term.iter_inputs().values():
+                graph.connect_stream(stream, term)
+
+        # Run bytewax dataflow (blocks until completion)
+        run_flow_graph(graph)
+
+    def _collect_connected_terms(self) -> list["Term"]:
+        """Recursively collect all terms connected to this composite term."""
+        collected = []
+        visited = set()
+
+        def visit(term: Term) -> None:
+            if id(term) in visited:
+                return
+            visited.add(id(term))
+            collected.append(term)
+
+            # Visit children of composite terms
+            if isinstance(term, CompositeTerm):
+                visit(term.term_left)
+                visit(term.term_right)
+
+            # Visit upstream terms (producers of input streams)
+            for stream in term.iter_inputs().values():
+                visit(stream._owner)  # noqa: SLF001
+
+            # Visit downstream terms (consumers of output streams)
+            for stream in term._outputs.values():  # noqa: SLF001
+                for consumer in stream._consumers:  # noqa: SLF001
+                    visit(consumer)
+
+        visit(self)
+        return collected
 
     def stop(self) -> None:
         """Stop the Term."""
@@ -1560,7 +912,7 @@ class Stop(Term):
 
 
 class Flatten(FunctionTerm):
-    """Flattens the first data steam. The level of flattening can be specified."""
+    """Flattens the data item. The level of flattening can be specified."""
 
     level: int | None
 
@@ -1569,84 +921,38 @@ class Flatten(FunctionTerm):
         super().__init__(*args, **kwargs)
         self.level = level
 
-    def f(self, items: dict[str, DataItem]) -> DataItem:
-        """Execute f on new data."""
-        if len(items) > 1:
-            msg = "Cannot flatten more than one stream at once. Please merge first."
-            raise ValueError(msg)
-
-        di = next(iter(items.values()))
+    def f(self, di: DataItem) -> DataItem:
+        """Execute f on new data - flattens nested dicts recursively."""
         return DataItem(flatten_dict(di))
 
 
 class MergeToSingleStream(FunctionTerm):
-    """Merges multiple streams into a single stream."""
+    """Merges multiple streams into a single stream.
+
+    When term has multiple inputs, receives hierarchical DataItem like:
+    {"source1": DataItem(...), "source2": DataItem(...)}
+    """
 
     def __init__(self, *args, combine: bool = False, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Create a MergeToSingleStream object."""
         super().__init__(*args, **kwargs)
         self.combine = combine
 
-    def f(self, items: dict[str, DataItem]) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Execute the Term's f."""
-        ret: dict | dict[str, DataItem]
         if self.combine:
-            # combine all into a single dict
+            # Combine all nested DataItems into single flat dict
             ret = {}
-            for v in items.values():
-                ret.update(v)
-        else:
-            # do not combine
-            ret = items
-
-        return DataItem(ret)
-
-
-class Linearizer(FunctionTerm):
-    """Linearize into a single stream."""
-
-    _info: bool
-
-    _lock: rwlock.RWLockFair
-    _new_data: threading.Condition
-
-    def __init__(self, *args, info: bool = True, **kwargs) -> None:  # noqa: ANN002, ANN003
-        """Create a Linearizer object."""
-        super().__init__(*args, **kwargs)
-
-        self._info = info
-
-        self._lock = rwlock.RWLockFair()
-        self._new_data = threading.Condition()
-
-    def _callback_new_data(self, di: DataItem) -> None:  # noqa: ARG002
-        with self._new_data:
-            self._new_data.notify_all()
-
-    def _add_input(self, name: str, ds: DataStream) -> None:
-        super()._add_input(name, ds)
-        ds.register_new_data_callback(self._callback_new_data)
-
-    def run(self, dsvs: dict[str, DataStreamView]) -> None:
-        """Execute on run."""
-        active_dsv_names = set(dsvs.keys())
-        while active_dsv_names:  # not empty
-            with self._new_data:
-                self._new_data.wait_for(lambda: any(dsvs[name].peek() for name in dsvs))
-
-            name_to_remove = None
-            for name in active_dsv_names:
-                if dsvs[name].peek():
-                    dsvs[name].next()  # LIVENESS: can't block since only we call next on our views and peek() was True
-                    di = dsvs[name][-1]
-                    if di.get_control_signal(Control.EOS):
-                        name_to_remove = name
-                    else:
-                        self.output(DataItem({"name": name, "data": di}) if self._info else di)
+            for v in di.values():
+                if isinstance(v, DataItem):
+                    ret.update(v)
+                else:
+                    # Single input, just use di as-is
+                    ret.update(di)
                     break
-
-            if name_to_remove is not None:
-                active_dsv_names.remove(name_to_remove)
+            return DataItem(ret)
+        # Don't combine - pass through hierarchical DataItem
+        return di
 
 
 class KeyValueFilter(FunctionTerm):
@@ -1658,6 +964,7 @@ class KeyValueFilter(FunctionTerm):
         """Create a new KeyValueFilter.
 
         Args:
+        ----
             key_value_filter (Callable[[str, Any], bool], optional): Filter to be applied to
             each key-value pair in data item.
 
@@ -1668,17 +975,17 @@ class KeyValueFilter(FunctionTerm):
         if key_value_filter is None and len(args) > 0 and has_callable_signature(args[0], (str, Any), bool):
             key_value_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
             name = str(args[0])
-            args = (name,) + args[1:]
+            args = (name, *args[1:])
 
         super().__init__(*args, **kwargs)
         self.key_value_filter = key_value_filter
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Run the f."""
         if self.key_value_filter is not None:
-            filtered_attributes = {k: v for k, v in item.items() if self.key_value_filter(k, v)}
+            filtered_attributes = {k: v for k, v in di.items() if self.key_value_filter(k, v)}
         else:
-            filtered_attributes = item
+            filtered_attributes = di
         return DataItem(filtered_attributes)
 
 
@@ -1696,15 +1003,15 @@ class DataItemFilter(FunctionTerm):
         if data_item_filter is None and len(args) > 0 and has_callable_signature(args[0], (Any,), bool):
             data_item_filter = args[0]  # type: ignore reportAssignmentType  # we check the signature above
             name = str(args[0])
-            args = (name,) + args[1:]
+            args = (name, *args[1:])
 
         super().__init__(*args, **kwargs)
         self.data_item_filter = data_item_filter
 
-    def f(self, item: DataItem) -> DataItem | None:
+    def f(self, di: DataItem) -> DataItem | None:
         """Execute on new data."""
-        if self.data_item_filter is None or self.data_item_filter(item):
-            return item
+        if self.data_item_filter is None or self.data_item_filter(di):
+            return di
         return None
 
 
@@ -1738,7 +1045,7 @@ class KeyFilter(KeyValueFilter):
                 raise TypeError(msg)
             keys = args[0]
             name = str(args[0])
-            args = (name,) + args[1:]
+            args = (name, *args[1:])
 
         self.keys = keys
         self.not_keys = not_keys
@@ -1765,13 +1072,21 @@ class Print(FunctionTerm):
     not_keys: None | str | list[str]
     print_fun: Callable
 
-    def __init__(self, *args, keys: None | str | list[str] = None, print_fun: Callable = print, **kwargs) -> None:  # noqa: ANN002, ANN003
+    def __init__(
+        self,
+        *args,  # noqa: ANN002
+        keys: None | str | list[str] = None,
+        print_fun: Callable = print,
+        date_to_str: bool = False,
+        **kwargs,  # noqa: ANN003
+    ) -> None:
         """Create a Print object."""
         self.keys = None
         self.not_keys = None
         not_keys = kwargs.pop("not_keys", None)
 
         self.print_fun = print_fun
+        self.date_to_str = date_to_str
 
         if keys is None and len(args) > 0 and isinstance(args[0], str | list):
             keys = args[0]
@@ -1787,20 +1102,21 @@ class Print(FunctionTerm):
         if not_keys is not None:
             self.not_keys = [not_keys] if isinstance(not_keys, str) else not_keys
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Execute the Term's f."""
         if self.keys:
-            filtered_item = {k: item[k] for k in self.keys if k in item}
+            filtered_item = {k: di[k] for k in self.keys if k in di}
         elif self.not_keys:
-            filtered_item = {k: v for k, v in item.items() if k not in self.not_keys}
+            filtered_item = {k: v for k, v in di.items() if k not in self.not_keys}
         else:
-            filtered_item = item
+            filtered_item = di
 
         formatted_item = {
-            k: (v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, datetime) else v) for k, v in filtered_item.items()
+            k: (v.strftime("%Y-%m-%d %H:%M:%S") if self.date_to_str and isinstance(v, datetime) else v)
+            for k, v in filtered_item.items()
         }
         self.print_fun(formatted_item)
-        return item  # return original item
+        return di  # return original item
 
 
 class PPrint(Print):
@@ -1827,10 +1143,10 @@ class PrintKeys(FunctionTerm):
         self.print_fun = print_fun
         super().__init__(*args, **kwargs)
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Run the Term's f."""
-        self.print_fun(list(item.keys()))
-        return item  # return original item
+        self.print_fun(list(di.keys()))
+        return di  # return original item
 
 
 class Dump(FunctionTerm):
@@ -1843,9 +1159,10 @@ class Dump(FunctionTerm):
         self.print_fun = print_fun
         super().__init__(*args, **kwargs)
 
-    def f(self, di: DataItem) -> None:
+    def f(self, di: DataItem) -> DataItem:
         """Run the Term's f."""
         self.print_fun(di)
+        return di
 
 
 class Rename(FunctionTerm):
@@ -1863,9 +1180,9 @@ class Rename(FunctionTerm):
             # rename via function
             self.fun = fun
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Run the Term's f."""
-        return DataItem({self.fun(k): v for k, v in item.items()})
+        return DataItem({self.fun(k): v for k, v in di.items()})
 
 
 class Id(FunctionTerm):
@@ -1875,25 +1192,9 @@ class Id(FunctionTerm):
         """Create an Id object."""
         super().__init__(*args, **kwargs)
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Forward data."""
-        return item
-
-
-class EosFilter(Id):
-    """Removes all EOS data items from the data stream.
-
-    Will stop at reception of EOS, but will not send one itself.
-    This is almost always undesired behavior; use with caution.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-        """Create an EosFilter object."""
-        super().__init__(*args, **kwargs)
-
-    def eos(self) -> None:
-        """Run in case of eos in stream."""
-        self.stop()
+        return di
 
 
 class AddIndex(FunctionTerm):
@@ -1908,11 +1209,11 @@ class AddIndex(FunctionTerm):
         self.key = key
         self.index = index
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Execute the Term's f."""
-        di = DataItem({**item, self.key: self.index})
+        new_di = DataItem({**di, self.key: self.index})
         self.index += 1
-        return di
+        return new_di
 
 
 class Delay(FunctionTerm):
@@ -1924,6 +1225,7 @@ class Delay(FunctionTerm):
         """Create an instance.
 
         Args:
+        ----
             delay_s (float): The delay in seconds.
             args: Additional args.
             kwargs: Additional kwargs.
@@ -1932,10 +1234,10 @@ class Delay(FunctionTerm):
         super().__init__(*args, **kwargs)
         self.delay_s = delay_s
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Run the Term's f."""
         time.sleep(self.delay_s)
-        return item
+        return di
 
 
 KT = TypeVar("KT")
