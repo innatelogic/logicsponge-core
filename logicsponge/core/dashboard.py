@@ -658,10 +658,24 @@ def show_stats(circuit: ls.Term) -> None:
     statistics_graph = StatisticsGraph(circuit)
 
 
-def run(debug: bool = False) -> None:  # noqa: FBT001, FBT002
-    """Run the dashboard app."""
-    # NOTE: if debug=True then modules may load twice, and
-    # this will be bad for running circuits etc.
-    if debug:
+def run(debug: bool = False, *, background: bool = True) -> threading.Thread | None:  # noqa: FBT001, FBT002
+    """Run the dashboard app.
+
+    By default, the server starts in a daemon thread so pipelines can run
+    concurrently without blocking. Set `background=False` to block the
+    current thread.
+    """
+    if debug and not background:
         logger.warning("Enabling debugging may lead to >1 execution of module code.")
-    app.run(debug=debug)
+
+    if background:
+        thread = threading.Thread(
+            target=app.run,
+            kwargs={"debug": debug, "use_reloader": False},
+            daemon=True,
+        )
+        thread.start()
+        return thread
+
+    app.run(debug=debug, use_reloader=False)
+    return None

@@ -3,9 +3,13 @@
 import csv
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import logicsponge.core as ls
 from logicsponge.core.source import CSVStreamer, FileWatchSource
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def test_constant_source_term() -> None:
@@ -54,6 +58,7 @@ def test_csv_streamer_static_file() -> None:
         writer.writerow({"id": "3", "name": "Charlie", "value": "300"})
         csv_path = f.name
 
+    generator: Iterator[ls.DataItem] | None = None
     try:
         # Test the generator directly
         source = CSVStreamer(file_path=csv_path, poll_delay=0.01)
@@ -75,6 +80,10 @@ def test_csv_streamer_static_file() -> None:
         assert results[2]["name"] == "Charlie"
 
     finally:
+        if generator is not None:
+            close_fn = getattr(generator, "close", None)
+            if callable(close_fn):
+                close_fn()
         # Clean up
         Path(csv_path).unlink()
 

@@ -89,10 +89,15 @@ def run_flow_graph(graph: TermGraph, *, flow_id: str = "logicsponge", workers: i
     term_nodes = graph._topological_order() if hasattr(graph, "_topological_order") else list(graph._terms)  # noqa: SLF001
     outputs: dict[Term, Any] = {}
 
+    def sanitize(label: object) -> str:
+        """Return a Bytewax-safe step id fragment."""
+        text = str(label)
+        return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in text)
+
     # Sources
     for term in term_nodes:
         if isinstance(term, SourceTerm):
-            step_id = f"src-{term.name}-{id(term)}"
+            step_id = f"src-{sanitize(term.name)}-{id(term)}"
             # Use generator-based input (no threads!)
             outputs[term] = op.input(step_id, flow, source_input(term))
 
@@ -118,15 +123,17 @@ def run_flow_graph(graph: TermGraph, *, flow_id: str = "logicsponge", workers: i
                 tagged_streams = []
                 for parent, parent_stream in zip(parent_terms, upstream, strict=False):
                     tagged = op.map(
-                        f"tag-{parent.name}-{id(parent)}", parent_stream, lambda di, name=parent.name: (name, di)
+                        f"tag-{sanitize(parent.name)}-{id(parent)}",
+                        parent_stream,
+                        lambda di, name=parent.name: (name, di),
                     )
                     tagged_streams.append(tagged)
 
                 # Merge all tagged streams
-                merged_tagged = op.merge(f"merge-tagged-{term.name}-{id(term)}", *tagged_streams)
+                merged_tagged = op.merge(f"merge-tagged-{sanitize(term.name)}-{id(term)}", *tagged_streams)
 
                 # Key everything with a fixed key for global state
-                keyed = op.key_on(f"key-{term.name}-{id(term)}", merged_tagged, lambda _x: "sync")
+                keyed = op.key_on(f"key-{sanitize(term.name)}-{id(term)}", merged_tagged, lambda _x: "sync")
 
                 # Use stateful map to accumulate items and apply function
                 def make_accumulator(expected: set[str], func_term: FunctionTerm | FlatMapTerm) -> Any:  # noqa: ANN401
@@ -155,20 +162,21 @@ def run_flow_graph(graph: TermGraph, *, flow_id: str = "logicsponge", workers: i
                     return accumulate
 
                 accumulated = op.stateful_map(
-                    f"accumulate-{typed_term.name}-{id(typed_term)}",
+                    f"accumulate-{sanitize(typed_term.name)}-{id(typed_term)}",
                     keyed,
                     make_accumulator(expected_sources, typed_term),
                 )
 
                 # Flatten the batches (extract value from keyed stream and flatten list)
                 outputs[typed_term] = op.flat_map(
-                    f"flatten-{typed_term.name}-{id(typed_term)}", accumulated, lambda kv: kv[1]
+                    f"flatten-{sanitize(typed_term.name)}-{id(typed_term)}", accumulated, lambda kv: kv[1]
                 )
                 # Mark this term as already processed (skip function application below)
                 already_keyed_terms.add(typed_term)
                 continue
 
-            step_prefix = f"{typed_term.name}-{id(typed_term)}"
+            safe_name = sanitize(typed_term.name)
+            step_prefix = f"{safe_name}-{id(typed_term)}"
 
             # Check if term is stateful - StatefulFunctionTerm or has special attributes
             # Stateful terms need sequential processing to avoid race conditions

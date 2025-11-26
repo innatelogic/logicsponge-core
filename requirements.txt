@@ -1,7 +1,6 @@
 # Core dependencies
 bytewax
 frozendict
-readerwriterlock
 
 # File handling and utilities
 chardet
