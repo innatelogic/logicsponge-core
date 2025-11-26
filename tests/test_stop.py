@@ -1,6 +1,7 @@
 """Test stopping."""
 
 import logging
+from collections.abc import Iterator
 
 import logicsponge.core as ls
 
@@ -12,15 +13,15 @@ def test_run_dataitem() -> None:
     """Test run with stop."""
 
     class MySource(ls.SourceTerm):
-        def run(self) -> None:
+        def generate(self) -> Iterator[ls.DataItem]:
             for i in range(10):
-                self.output(ls.DataItem({"say": i}))
+                yield ls.DataItem({"say": i})
 
         def exit(self) -> None:
             logger.info("MySource.exit")
 
-    class MyF(ls.FunctionTerm):
-        def f(self, di: ls.DataItem) -> None:
+    class MyF(ls.StatefulFunctionTerm):
+        def f(self, di: ls.DataItem) -> ls.DataItem:
             if not self.state:
                 self.state["say_expected"] = 0
             else:
@@ -28,7 +29,7 @@ def test_run_dataitem() -> None:
 
             logger.info(di)
             assert di["say"] == self.state["say_expected"]
-            self.output(di)
+            return di
 
         def exit(self) -> None:
             logger.info("MyF.exit")

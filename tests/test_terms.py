@@ -47,10 +47,10 @@ def test_sequential() -> None:
 
 def test_sequential_source() -> None:
     """Test sequential source composition."""
-    s = ls.SourceTerm("s")
-    x = ls.FunctionTerm("x")
-    y = ls.FunctionTerm("y")
-    z = ls.FunctionTerm("z")
+    s = ls.ConstantSourceTerm([], name="s")
+    x = ls.Id("x")
+    y = ls.Id("y")
+    z = ls.Id("z")
     u = s * x * y * z
     assert str(u) == "(Term(s); Term(x); Term(y); Term(z))"
     assert type(u) is ls.SequentialTerm
@@ -109,3 +109,26 @@ def test_run_dataitem() -> None:
 
     x = Hu(name="x")
     assert str(x) == "Term(x)"
+
+
+def test_term_accepts_any_name() -> None:
+    """Term constructors accept any value as name (no runtime validation)."""
+
+    class Foo(ls.FunctionTerm):
+        def f(self, item: ls.DataItem) -> ls.DataItem:
+            return item
+
+    # No runtime validation - accepts any type
+    term = Foo(True)  # type: ignore[arg-type]  # noqa: FBT003
+    assert term.name == True  # noqa: E712
+
+
+def test_term_rejects_multiple_positional_args() -> None:
+    """Term constructors should allow at most one positional argument."""
+
+    class Bar(ls.FunctionTerm):
+        def f(self, item: ls.DataItem) -> ls.DataItem:
+            return item
+
+    with pytest.raises(TypeError):
+        Bar("name", "extra")  # type: ignore[arg-type]

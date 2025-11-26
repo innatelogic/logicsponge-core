@@ -37,8 +37,7 @@ class BaseStatistic(ls.FunctionTerm):
                     self.state[key] = []
                 self.state[key].append(di[key])
 
-            results = ls.DataItem({key: self.calculate(np.array(self.state[key], dtype=float)) for key in di})
-            self.output(results)
+            return ls.DataItem({key: self.calculate(np.array(self.state[key], dtype=float)) for key in di})
 
         if self.dim == 1:
             values = np.array(list(di.values()), dtype=float)
