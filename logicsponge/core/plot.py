@@ -43,8 +43,8 @@ class Plot(ls.FunctionTerm):
     x_name: str
     y_names: list[str] | None
     lines: dict[str, matplotlib.lines.Line2D]
-    fig: matplotlib.figure.Figure | None
-    ax: matplotlib.axes.Axes | None
+    fig: matplotlib.figure.Figure
+    ax: matplotlib.axes.Axes
     incremental: bool
 
     def __init__(
@@ -83,10 +83,6 @@ class Plot(ls.FunctionTerm):
         self.state["y"] = {k: [] for k in self.y_names}
 
         # init lines
-        if self.ax is None:
-            msg = "this should not happen: self.ax must be set on the 1st plot"
-            raise ValueError(msg)
-
         self.lines = {y_name: self.ax.plot([], [], lw=2)[0] for y_name in self.y_names}
         self.ax.set_xlabel(self.x_name)
         self.ax.legend(self.y_names)
@@ -122,9 +118,6 @@ class Plot(ls.FunctionTerm):
             M = max([*finite_values, M])  # noqa: N806
 
         # rezoom
-        if self.ax is None:
-            msg = "this should not happen: self.ax must be set"
-            raise ValueError(msg)
         self.ax.set_xlim(self.state["x"][0] - 1, self.state["x"][-1] + 1)
         y_offset = min(M - m, 1.0) * 0.1
         y_lower = m - y_offset if is_finite(m - y_offset) else -1.0
@@ -132,9 +125,6 @@ class Plot(ls.FunctionTerm):
         self.ax.set_ylim(y_lower, y_upper)
 
         # draw
-        if self.fig is None:
-            msg = "this should not happen: self.fig must be set"
-            raise ValueError(msg)
         self.fig.canvas.draw_idle()
         plt.pause(0.001)
 
@@ -169,9 +159,6 @@ class Plot(ls.FunctionTerm):
             M = max([*finite_values, M])  # noqa: N806
 
         # rezoom
-        if self.ax is None:
-            msg = "this should not happen: self.ax must be set"
-            raise ValueError(msg)
         self.ax.set_xlim(self.state["x"][0] - 1, self.state["x"][-1] + 1)
         y_offset = min(M - m, 1.0) * 0.1
         y_lower = m - y_offset if is_finite(m - y_offset) else -1.0
@@ -179,9 +166,6 @@ class Plot(ls.FunctionTerm):
         self.ax.set_ylim(y_lower, y_upper)
 
         # draw
-        if self.fig is None:
-            msg = "this should not happen: self.fig must be set"
-            raise ValueError(msg)
         self.fig.canvas.draw_idle()
         plt.pause(0.001)
 
@@ -197,8 +181,8 @@ class Plot(ls.FunctionTerm):
 class DeepPlot(ls.FunctionTerm):
     """A complete, non-iterative plot."""
 
-    fig: matplotlib.figure.Figure | None
-    ax: matplotlib.axes.Axes | None
+    fig: matplotlib.figure.Figure
+    ax: matplotlib.axes.Axes
     then_fun: Callable[[Self, ls.DataItem], None] | None
 
     def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
@@ -210,10 +194,6 @@ class DeepPlot(ls.FunctionTerm):
         self.fig.show()
 
     def _axis_setup(self, params: PlotParams) -> None:  # noqa: ARG002
-        if self.ax is None:
-            msg = "this should not happen: self.ax must be set"
-            raise ValueError(msg)
-
         self.ax.set_title(self.name)
 
     def _call_plot_dicts(self, d: dict | ls.DataItem) -> None:
@@ -232,14 +212,6 @@ class DeepPlot(ls.FunctionTerm):
         self._axis_setup(params)
 
         # draw
-        if self.fig is None:
-            msg = "this should not happen: self.fig must be set"
-            raise ValueError(msg)
-
-        if self.ax is None:
-            msg = "this should not happen: self.ax must be set"
-            raise ValueError(msg)
-
         if not isinstance(params, dict):
             msg = "expecting a plot dictionary"
             raise TypeError(msg)

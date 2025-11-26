@@ -2,6 +2,15 @@
 bytewax
 frozendict
 
+# Dashboard and plotting
+dash
+dash-bootstrap-components
+dash-svg
+numpy
+plotly
+matplotlib
+scipy
+
 # File handling and utilities
 chardet
 gdown
