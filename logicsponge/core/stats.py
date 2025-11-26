@@ -61,9 +61,9 @@ class Sum(ls.FunctionTerm):
         self.key = key
         self.state["value"] = 0.0  # initially, sum is 0
 
-    def f(self, item: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Run on new data."""
-        self.state["value"] += item[self.key]
+        self.state["value"] += di[self.key]
         return ls.DataItem({"sum": self.state["value"]})
 
 

@@ -183,13 +183,13 @@ class Plot(ls.FunctionTerm):
         # self.fig.canvas.flush_events()
         self.fig.canvas.draw_idle()
 
-    def f(self, item: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Run on new data item."""
         if self.incremental:
-            self.add_data(item)
+            self.add_data(di)
         else:
-            self.plot(item)
-        return item
+            self.plot(di)
+        return di
 
 
 class DeepPlot(ls.FunctionTerm):
@@ -252,21 +252,21 @@ class DeepPlot(ls.FunctionTerm):
         self.ax.plot(x, y, *args, **kwargs)
         self.fig.canvas.draw_idle()
 
-    def f(self, item: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Run f on new data item."""
         # potentially clear the axis
         if self.ax is not None:
             self.ax.clear()
 
         # do the plotting
-        self._call_plot_dicts(item)
+        self._call_plot_dicts(di)
 
         # potentially call the then-registered function
         if self.then_fun is not None:
-            self.then_fun(self, item)
+            self.then_fun(self, di)
 
         # return all
-        return item
+        return di
 
     def then(self, fun: Callable[[Self, ls.DataItem], None]) -> Self:
         """Run a function after the plotting."""

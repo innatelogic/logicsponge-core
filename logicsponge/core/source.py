@@ -183,21 +183,21 @@ class StringDiff(ls.FunctionTerm):
         super().__init__(*args, **kwargs)
         self.old_string = ""
 
-    def f(self, data: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Execute on new data."""
-        new_string = data["string"]
+        new_string = di["string"]
         ret_string = new_string.removeprefix(self.old_string)
         self.old_string = new_string
-        return ls.DataItem({**data, "string": ret_string})
+        return ls.DataItem({**di, "string": ret_string})
 
 
-class LineSplitter(ls.FunctionTerm):
+class LineSplitter(ls.FlatMapTerm):
     """Split into lines."""
 
-    def f(self, data: ls.DataItem) -> None:
+    def f(self, di: ls.DataItem) -> list[ls.DataItem]:
         """Execute on new data."""
-        lines = data["string"].replace("\r\n", "\n").split("\n")
-        return [ls.DataItem({**data, "string": line}) for line in lines]
+        lines = di["string"].replace("\r\n", "\n").split("\n")
+        return [ls.DataItem({**di, "string": line}) for line in lines]
 
 
 class LineParser(ls.FunctionTerm):
@@ -216,9 +216,9 @@ class LineParser(ls.FunctionTerm):
         self.has_header = kwargs.get("has_header", True)
         self.header = None
 
-    def f(self, data: ls.DataItem) -> ls.DataItem | None:
+    def f(self, di: ls.DataItem) -> ls.DataItem | None:
         """Execute on new data."""
-        line = data["string"]
+        line = di["string"]
         if len(line) > 0 and line[0] == self.comment:
             # comment line
             return None

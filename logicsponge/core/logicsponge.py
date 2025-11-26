@@ -6,14 +6,12 @@ import pprint
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 from functools import reduce
 from typing import Any, Self, TypeVar
 
 from frozendict import frozendict
-from readerwriterlock import rwlock
-from typing_extensions import override
 
 # logging
 logger = logging.getLogger(__name__)
@@ -115,230 +113,85 @@ class LatencyQueue:
 
 
 class DataItem:
-    """Encapsulates a collection of key/value data pairs, together with associated metadata.
-
-    Contains methods to keep track of timing and control data. The implementation is thread-safe.
-    """
+    """Immutable key/value container with timestamp metadata."""
 
     _data: frozendict[str, Any]
-    _lock: rwlock.RWLockFair
-
     _time: float
 
     def __init__(self, data: dict[str, Any] | Self | None = None) -> None:
-        """Initialize a new DataItem.
-
-        Args:
-        ----
-            data: Contains the data carried by the DataItem.
-                If data is a dict, it copies the key/value data pairs out of the given dict.
-                If data is a DataItem, it copies the key/value data pairs out of the given DataItem.
-                If data is None, then the DataItem has no key/value data pairs.
-
-        """
-        # set data
+        """Initialize a new DataItem."""
         if data is None:
             self._data = frozendict()
         elif isinstance(data, DataItem):
-            self._data = frozendict(data._data)  # noqa: SLF001
+            self._data = data._data  # noqa: SLF001
         else:
             self._data = frozendict(data)
-
-        self._lock = rwlock.RWLockFair()
-        self.set_time_to_now()  # set time to now
+        self._time = time.time()
 
     @property
     def time(self) -> float:
-        """The DataItem's time metadata.
-
-        Returns
-        -------
-            The DataItem's time as a Unix timestamp.
-
-        """
-        with self._lock.gen_rlock():
-            return self._time
+        """Return the DataItem's timestamp."""
+        return self._time
 
     @time.setter
     def time(self, timestamp: float) -> None:
-        with self._lock.gen_wlock():
-            self._time = timestamp
+        self._time = timestamp
 
     def set_time_to_now(self) -> Self:
-        """Set the time metadata of the DataItem to the current time.
-
-        Returns
-        -------
-            The DataITem after setting the time.
-
-        """
-        with self._lock.gen_wlock():
-            # self._time = datetime.now(UTC).timestamp()
-            # make faster via:
-            self._time = time.time()
+        """Stamp with the current time and return self."""
+        self._time = time.time()
         return self
 
     def copy(self) -> "DataItem":
-        """Copy the current DataItem with the current time as metadata.
-
-        Returns
-        -------
-            The copied DataItem.
-
-        """
-        with self._lock.gen_rlock():
-            new_copy = DataItem(self)
-            new_copy.set_time_to_now()
-            return new_copy
+        """Return a new DataItem with the same data and refreshed timestamp."""
+        new_copy = DataItem(self)
+        new_copy.set_time_to_now()
+        return new_copy
 
     def __str__(self) -> str:
-        """Construct a string description of the DataItem.
-
-        Returns
-        -------
-            A string of the format "DataItem(dict)" where dict contains all key/value data pairs.
-
-        """
+        """Construct a string description of the DataItem."""
         return f"DataItem({self._data})"
 
     def __getitem__(self, key: str) -> Any:  # noqa: ANN401
-        """Return the data value for a given key.
-
-        Args:
-        ----
-            key: The key of the data value to be returned.
-
-        Returns:
-        -------
-            The data value.
-
-        Raises:
-        ------
-            IndexError: If no data value exists for the given key.
-
-        """
-        try:
-            return self._data[key]
-        except IndexError as e:
-            raise IndexError from e
-
-    def __delitem__(self, key: str) -> None:
-        """Delete the data value for a given key.
-
-        Args:
-        ----
-            key: The key of the data value to be deleted.
-
-        """
-        new_data = dict(self._data)
-        del new_data[key]
-        self._data = frozendict(new_data)
+        """Return the data value for a given key."""
+        return self._data[key]
 
     def __contains__(self, key: str) -> bool:
-        """Check whether a data value for the given key exists in the DataItem.
-
-        Args:
-        ----
-            key: The key to be checked.
-
-        Returns:
-        -------
-            True if the DataItem contains a data value for the given key.
-
-        """
+        """Check whether a data value for the given key exists in the DataItem."""
         return key in self._data
 
     def __iter__(self) -> Iterator:
-        """Construct an Iterator for the key/value data pairs.
-
-        Returns
-        -------
-            The iterator.
-
-        """
+        """Construct an Iterator for the keys."""
         return iter(self._data)
 
     def __len__(self) -> int:
-        """Compute the number of data values in the DataItem.
-
-        Returns
-        -------
-            The number of key/value data pairs in the DataItem.
-
-        """
+        """Compute the number of data values in the DataItem."""
         return len(self._data)
 
     def __eq__(self, other: object) -> bool:
-        """Check whether two DataItems have the same key/value data pairs.
-
-        Args:
-        ----
-            other: The object to compare to.
-
-        Returns:
-        -------
-            True if other is a DataItem and they contain the same key/value data pairs.
-            False if other is a DataItem and they do not contain the same key/value data pairs.
-            NotImplemented otherwise.
-
-        """
+        """Check equality based on contained data."""
         if isinstance(other, DataItem):
             return self._data == other._data
         return NotImplemented
 
     def __hash__(self) -> int:
-        """Compute the hash of the DataItem.
-
-        Returns
-        -------
-            The hash of the DataItem. Only takes into account key/value data pairs, not the metadata.
-
-        """
+        """Compute the hash of the DataItem."""
         return hash(frozenset(self._data.items()))
 
     def items(self) -> Iterator[tuple[str, Any]]:
-        """Construct an iterator for the key/value data pairs of the DataItem.
-
-        Returns
-        -------
-            The iterator.
-
-        """
+        """Construct an iterator for the key/value data pairs of the DataItem."""
         return iter(self._data.items())
 
     def keys(self) -> Iterator[str]:
-        """Construct an iterator for the keys of the DataItem.
-
-        Returns
-        -------
-            The iterator.
-
-        """
+        """Construct an iterator for the keys of the DataItem."""
         return iter(self._data.keys())
 
     def values(self) -> Iterator[Any]:
-        """Construct an iterator for the data values of the DataItem.
-
-        Returns
-        -------
-            The iterator.
-
-        """
+        """Construct an iterator for the data values of the DataItem."""
         return iter(self._data.values())
 
     def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
-        """Get the data value for the given key, or the default value if it doesn't exist.
-
-        Args:
-        ----
-            key: The key of the requested data value.
-            default: The default value to be returned if the data value doesn't exist.
-
-        Returns:
-        -------
-            The data value for the key if it exists, default otherwise.
-
-        """
+        """Get the data value for the given key, or the default value if it doesn't exist."""
         return self._data.get(key, default)
 
 
@@ -421,6 +274,7 @@ class Term(ABC):
     id: str | None
     _outputs: dict[str, DataStream]
     _parent: "Term | None"
+    stats: Any | None
 
     def __init__(self, name: str | None = None, **kwargs) -> None:  # noqa: ANN003, ARG002
         """Create a Term."""
@@ -429,10 +283,23 @@ class Term(ABC):
         self.id = None
         self._outputs = {}
         self._parent = None
+        self.stats = None
         if name is None:
             self.name = str(type(self).__name__)
         else:
             self.name = name
+
+    def iter_inputs(self) -> dict[str, DataStream]:
+        """Return inbound inputs; default empty for sources."""
+        return {}
+
+    def requires_stateful(self) -> bool:
+        """Return True if this term needs ordered, sequential processing."""
+        return False
+
+    def processes_data(self) -> bool:
+        """Return True if this term processes upstream data."""
+        return False
 
     @abstractmethod
     def _add_input(self, name: str, ds: DataStream) -> None:
@@ -565,9 +432,8 @@ class SourceTerm(Term):
 
         # Add connections
         for term in all_terms:
-            if isinstance(term, FunctionTerm):
-                for stream in term._inputs.values():  # noqa: SLF001
-                    graph.connect_stream(stream, term)
+            for stream in term.iter_inputs().values():
+                graph.connect_stream(stream, term)
 
         # Run bytewax dataflow (blocks until completion)
         run_flow_graph(graph)
@@ -627,7 +493,7 @@ class ConstantSourceTerm(SourceTerm):
 
 
 class FunctionTerm(Term):
-    """A Term that receives data, performs a function on it, and outputs the resulting data.
+    """Term that maps one input item to one output item (or filters it out).
 
     Attributes
     ----------
@@ -646,6 +512,11 @@ class FunctionTerm(Term):
         self._output = DataStream(owner=self)
         self._outputs[self.name] = self._output
         self.state = {}
+        self._stateful = False
+
+    def iter_inputs(self) -> dict[str, DataStream]:
+        """Return inbound inputs."""
+        return self._inputs
 
     def _add_input(self, name: str, ds: DataStream) -> None:
         if name in self._inputs:
@@ -679,6 +550,19 @@ class FunctionTerm(Term):
         """
         raise NotImplementedError
 
+    def apply(self, di: DataItem) -> list[DataItem]:
+        """Apply mapping semantics and normalize to a list."""
+        result = self.f(di)
+        return [result] if result is not None else []
+
+    def processes_data(self) -> bool:
+        """FunctionTerms process upstream data."""
+        return True
+
+    def requires_stateful(self) -> bool:
+        """Return True if this term needs ordered, sequential processing."""
+        return self._stateful
+
     def enter(self) -> None:
         """Overwrite this function to initialize the function term."""
 
@@ -710,9 +594,8 @@ class FunctionTerm(Term):
 
         # Add connections
         for term in all_terms:
-            if isinstance(term, FunctionTerm):
-                for stream in term._inputs.values():  # noqa: SLF001
-                    graph.connect_stream(stream, term)
+            for stream in term.iter_inputs().values():
+                graph.connect_stream(stream, term)
 
         # Run bytewax dataflow (blocks until completion)
         run_flow_graph(graph)
@@ -734,9 +617,8 @@ class FunctionTerm(Term):
                 visit(term.term_right)
 
             # Visit upstream terms (producers of input streams)
-            if isinstance(term, FunctionTerm):
-                for stream in term._inputs.values():  # noqa: SLF001
-                    visit(stream._owner)  # noqa: SLF001
+            for stream in term.iter_inputs().values():
+                visit(stream._owner)  # noqa: SLF001
 
             # Visit downstream terms (consumers of output streams)
             for stream in term._outputs.values():  # noqa: SLF001
@@ -753,6 +635,124 @@ class StatefulFunctionTerm(FunctionTerm):
     Bytewax will ensure DataItems are processed in order for StatefulFunctionTerms.
     Use this for terms that maintain state across DataItems and need ordering guarantees.
     """
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a stateful FunctionTerm."""
+        super().__init__(*args, **kwargs)
+        self._stateful = True
+
+    def requires_stateful(self) -> bool:
+        """Stateful function terms need ordered processing."""
+        return True
+
+
+class FlatMapTerm(Term):
+    """Term that maps one input item to zero or more output items."""
+
+    _inputs: dict[str, DataStream]
+    _output: DataStream
+    state: State
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """Create a FlatMapTerm object."""
+        super().__init__(*args, **kwargs)
+        self._inputs = {}
+        self._output = DataStream(owner=self)
+        self._outputs[self.name] = self._output
+        self.state = {}
+
+    def iter_inputs(self) -> dict[str, DataStream]:
+        """Return inbound inputs."""
+        return self._inputs
+
+    def _add_input(self, name: str, ds: DataStream) -> None:
+        if name in self._inputs:
+            msg = f"Term {self.__class__}: tried to add input stream '{name}' but it already exists in the Term"
+            raise ValueError(msg)
+        self._inputs[name] = ds
+        if self not in ds._consumers:  # noqa: SLF001
+            ds._consumers.append(self)  # noqa: SLF001
+
+    def _set_id(self, new_id: str) -> None:
+        self.id = new_id
+        self._output._set_id(f"{self.id}:output")  # noqa: SLF001
+        for name, stream in self._inputs.items():
+            stream._set_id(f"{self.id}:input:{name}")  # noqa: SLF001
+
+    def f(self, di: DataItem) -> Iterable[DataItem] | None:
+        """Process a single DataItem and return an iterable of DataItems (or None)."""
+        raise NotImplementedError
+
+    def apply(self, di: DataItem) -> list[DataItem]:
+        """Apply flat-map semantics and normalize to a list."""
+        result = self.f(di)
+        if result is None:
+            return []
+        return list(result)
+
+    def processes_data(self) -> bool:
+        """FlatMapTerms process upstream data."""
+        return True
+
+    def enter(self) -> None:
+        """Overwrite this function to initialize the term."""
+
+    def exit(self) -> None:
+        """Overwrite this function to clean up the term."""
+
+    def stop(self) -> None:
+        """No-op stop for bytewax backend."""
+
+    def join(self) -> None:
+        """No-op join for bytewax backend (execution is synchronous)."""
+
+    def start(self, *, persistent: bool = False) -> None:  # noqa: ARG002
+        """Start execution using bytewax backend (synchronous, blocking)."""
+        if not self.id:
+            self._set_id("root")
+
+        from logicsponge.core.flow_backend import run_flow_graph
+        from logicsponge.core.graph import TermGraph
+
+        all_terms = self._collect_connected_terms()
+
+        graph = TermGraph()
+        for term in all_terms:
+            if not isinstance(term, CompositeTerm):
+                graph.add_term(term)
+
+        for term in all_terms:
+            if isinstance(term, (FunctionTerm, FlatMapTerm)):
+                for stream in term._inputs.values():  # noqa: SLF001
+                    graph.connect_stream(stream, term)
+
+        run_flow_graph(graph)
+
+    def _collect_connected_terms(self) -> list["Term"]:
+        """Recursively collect all terms connected to this term."""
+        collected = []
+        visited = set()
+
+        def visit(term: Term) -> None:
+            if id(term) in visited:
+                return
+            visited.add(id(term))
+            collected.append(term)
+
+            if isinstance(term, CompositeTerm):
+                visit(term.term_left)
+                visit(term.term_right)
+
+            if isinstance(term, (FunctionTerm, FlatMapTerm)):
+                for stream in term._inputs.values():  # noqa: SLF001
+                    visit(stream._owner)  # noqa: SLF001
+
+            for stream in term._outputs.values():  # noqa: SLF001
+                for consumer in stream._consumers:  # noqa: SLF001
+                    visit(consumer)
+
+        visit(self)
+        return collected
 
 
 class CompositeTerm(Term):
@@ -789,9 +789,8 @@ class CompositeTerm(Term):
 
         # Add connections
         for term in all_terms:
-            if isinstance(term, FunctionTerm):
-                for stream in term._inputs.values():  # noqa: SLF001
-                    graph.connect_stream(stream, term)
+            for stream in term.iter_inputs().values():
+                graph.connect_stream(stream, term)
 
         # Run bytewax dataflow (blocks until completion)
         run_flow_graph(graph)
@@ -813,9 +812,8 @@ class CompositeTerm(Term):
                 visit(term.term_right)
 
             # Visit upstream terms (producers of input streams)
-            if isinstance(term, FunctionTerm):
-                for stream in term._inputs.values():  # noqa: SLF001
-                    visit(stream._owner)  # noqa: SLF001
+            for stream in term.iter_inputs().values():
+                visit(stream._owner)  # noqa: SLF001
 
             # Visit downstream terms (consumers of output streams)
             for stream in term._outputs.values():  # noqa: SLF001
@@ -982,12 +980,12 @@ class KeyValueFilter(FunctionTerm):
         super().__init__(*args, **kwargs)
         self.key_value_filter = key_value_filter
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Run the f."""
         if self.key_value_filter is not None:
-            filtered_attributes = {k: v for k, v in item.items() if self.key_value_filter(k, v)}
+            filtered_attributes = {k: v for k, v in di.items() if self.key_value_filter(k, v)}
         else:
-            filtered_attributes = item
+            filtered_attributes = di
         return DataItem(filtered_attributes)
 
 
@@ -1010,10 +1008,10 @@ class DataItemFilter(FunctionTerm):
         super().__init__(*args, **kwargs)
         self.data_item_filter = data_item_filter
 
-    def f(self, item: DataItem) -> DataItem | None:
+    def f(self, di: DataItem) -> DataItem | None:
         """Execute on new data."""
-        if self.data_item_filter is None or self.data_item_filter(item):
-            return item
+        if self.data_item_filter is None or self.data_item_filter(di):
+            return di
         return None
 
 
@@ -1104,21 +1102,21 @@ class Print(FunctionTerm):
         if not_keys is not None:
             self.not_keys = [not_keys] if isinstance(not_keys, str) else not_keys
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Execute the Term's f."""
         if self.keys:
-            filtered_item = {k: item[k] for k in self.keys if k in item}
+            filtered_item = {k: di[k] for k in self.keys if k in di}
         elif self.not_keys:
-            filtered_item = {k: v for k, v in item.items() if k not in self.not_keys}
+            filtered_item = {k: v for k, v in di.items() if k not in self.not_keys}
         else:
-            filtered_item = item
+            filtered_item = di
 
         formatted_item = {
             k: (v.strftime("%Y-%m-%d %H:%M:%S") if self.date_to_str and isinstance(v, datetime) else v)
             for k, v in filtered_item.items()
         }
         self.print_fun(formatted_item)
-        return item  # return original item
+        return di  # return original item
 
 
 class PPrint(Print):
@@ -1145,10 +1143,10 @@ class PrintKeys(FunctionTerm):
         self.print_fun = print_fun
         super().__init__(*args, **kwargs)
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Run the Term's f."""
-        self.print_fun(list(item.keys()))
-        return item  # return original item
+        self.print_fun(list(di.keys()))
+        return di  # return original item
 
 
 class Dump(FunctionTerm):
@@ -1182,9 +1180,9 @@ class Rename(FunctionTerm):
             # rename via function
             self.fun = fun
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Run the Term's f."""
-        return DataItem({self.fun(k): v for k, v in item.items()})
+        return DataItem({self.fun(k): v for k, v in di.items()})
 
 
 class Id(FunctionTerm):
@@ -1194,9 +1192,9 @@ class Id(FunctionTerm):
         """Create an Id object."""
         super().__init__(*args, **kwargs)
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Forward data."""
-        return item
+        return di
 
 
 class AddIndex(FunctionTerm):
@@ -1211,11 +1209,11 @@ class AddIndex(FunctionTerm):
         self.key = key
         self.index = index
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Execute the Term's f."""
-        di = DataItem({**item, self.key: self.index})
+        new_di = DataItem({**di, self.key: self.index})
         self.index += 1
-        return di
+        return new_di
 
 
 class Delay(FunctionTerm):
@@ -1236,10 +1234,10 @@ class Delay(FunctionTerm):
         super().__init__(*args, **kwargs)
         self.delay_s = delay_s
 
-    def f(self, item: DataItem) -> DataItem:
+    def f(self, di: DataItem) -> DataItem:
         """Run the Term's f."""
         time.sleep(self.delay_s)
-        return item
+        return di
 
 
 KT = TypeVar("KT")

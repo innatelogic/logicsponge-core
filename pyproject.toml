@@ -44,6 +44,7 @@ packages = ["logicsponge"]
 venvPath = "."
 venv = "venv"
 typeCheckingMode = "standard"
+pythonVersion = "3.11"
 reportGeneralTypeIssues = true
 reportOptionalSubscript = true
 # reportUnknownParameterType = true

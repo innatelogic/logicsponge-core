@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from bytewax import operators as op
 from bytewax.dataflow import Dataflow
@@ -11,15 +10,11 @@ from bytewax.inputs import DynamicSource, StatelessSourcePartition
 from bytewax.outputs import DynamicSink, StatelessSinkPartition
 from bytewax.run import cli_main
 
-from logicsponge.core.logicsponge import (
-    DataItem,
-    FunctionTerm,
-    SourceTerm,
-    StatefulFunctionTerm,
-    Term,
-)
+from logicsponge.core.logicsponge import DataItem, FlatMapTerm, FunctionTerm, SourceTerm, Term
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from logicsponge.core.graph import TermGraph
 
 
@@ -41,8 +36,9 @@ def iterable_input(items: Iterable[DataItem]) -> DynamicSource:
     class _Inp(DynamicSource):
         """_Inp class."""
 
-        def build(self, _step_id: str, _worker_index: int, _worker_count: int) -> IterablePartition:
+        def build(self, step_id: str, worker_index: int, worker_count: int) -> IterablePartition:
             """Build."""
+            _ = (step_id, worker_index, worker_count)
             return IterablePartition(items)
 
     return _Inp()
@@ -79,8 +75,9 @@ def source_input(term: SourceTerm) -> DynamicSource:
     class _Inp(DynamicSource):
         """_Inp class."""
 
-        def build(self, _step_id: str, _worker_index: int, _worker_count: int) -> GeneratorSourcePartition:
+        def build(self, step_id: str, worker_index: int, worker_count: int) -> GeneratorSourcePartition:
             """Build."""
+            _ = (step_id, worker_index, worker_count)
             return GeneratorSourcePartition(term)
 
     return _Inp()
@@ -92,34 +89,6 @@ def run_flow_graph(graph: TermGraph, *, flow_id: str = "logicsponge", workers: i
     term_nodes = graph._topological_order() if hasattr(graph, "_topological_order") else list(graph._terms)  # noqa: SLF001
     outputs: dict[Term, Any] = {}
 
-    def normalize_result(result: DataItem | Iterable[DataItem] | dict[str, Any] | None) -> list[DataItem]:
-        """Normalize a function result into a list of DataItems."""
-        if result is None:
-            return []
-
-        if isinstance(result, DataItem):
-            return [result]
-
-        if isinstance(result, dict):
-            return [DataItem(result)]
-
-        if isinstance(result, Iterable) and not isinstance(result, (str, bytes, DataItem)):
-            normalized: list[DataItem] = []
-            for item in result:
-                if item is None:
-                    continue
-                if isinstance(item, DataItem):
-                    normalized.append(item)
-                elif isinstance(item, dict):
-                    normalized.append(DataItem(item))
-                else:
-                    msg = f"Unsupported item type {type(item)} in iterable output."
-                    raise TypeError(msg)
-            return normalized
-
-        msg = f"Unsupported function output type {type(result)}; expected DataItem, dict, iterable, or None."
-        raise TypeError(msg)
-
     # Sources
     for term in term_nodes:
         if isinstance(term, SourceTerm):
@@ -130,7 +99,8 @@ def run_flow_graph(graph: TermGraph, *, flow_id: str = "logicsponge", workers: i
     # Functions
     already_keyed_terms = set()  # Track terms whose streams are already keyed
     for term in term_nodes:
-        if isinstance(term, FunctionTerm):
+        if term.processes_data():
+            typed_term = cast("FunctionTerm | FlatMapTerm", term)
             upstream = [outputs[parent] for parent in graph._inbound.get(term, [])]  # noqa: SLF001
             if not upstream:
                 continue
@@ -159,22 +129,24 @@ def run_flow_graph(graph: TermGraph, *, flow_id: str = "logicsponge", workers: i
                 keyed = op.key_on(f"key-{term.name}-{id(term)}", merged_tagged, lambda _x: "sync")
 
                 # Use stateful map to accumulate items and apply function
-                def make_accumulator(expected: set[str], func_term: FunctionTerm) -> Any:  # noqa: ANN401
+                def make_accumulator(expected: set[str], func_term: FunctionTerm | FlatMapTerm) -> Any:  # noqa: ANN401
                     """Make accumulator."""
 
-                    def accumulate(state: dict | None, item: tuple[str, DataItem]) -> tuple[dict, list[DataItem]]:
+                    def accumulate(
+                        state: dict[str, DataItem] | None, item: tuple[str, DataItem]
+                    ) -> tuple[dict[str, DataItem], list[DataItem]]:
                         """Accumulate."""
                         if state is None:
-                            state = {}
+                            state = dict[str, DataItem]()
                         name, di = item
                         state[name] = di
 
                         # Check if we have items from all sources
                         if set(state.keys()) == expected:
                             # Emit hierarchical DataItem
-                            hierarchical = DataItem(dict(state.items()))
+                            hierarchical = DataItem(dict(state))
                             # Apply the function immediately
-                            result = normalize_result(func_term.f(hierarchical))
+                            result = func_term.apply(hierarchical)
                             # Clear state for next batch
                             return ({}, result)
                         # Wait for more items
@@ -183,52 +155,50 @@ def run_flow_graph(graph: TermGraph, *, flow_id: str = "logicsponge", workers: i
                     return accumulate
 
                 accumulated = op.stateful_map(
-                    f"accumulate-{term.name}-{id(term)}", keyed, make_accumulator(expected_sources, term)
+                    f"accumulate-{typed_term.name}-{id(typed_term)}",
+                    keyed,
+                    make_accumulator(expected_sources, typed_term),
                 )
 
                 # Flatten the batches (extract value from keyed stream and flatten list)
-                outputs[term] = op.flat_map(f"flatten-{term.name}-{id(term)}", accumulated, lambda kv: kv[1])
+                outputs[typed_term] = op.flat_map(
+                    f"flatten-{typed_term.name}-{id(typed_term)}", accumulated, lambda kv: kv[1]
+                )
                 # Mark this term as already processed (skip function application below)
-                already_keyed_terms.add(term)
+                already_keyed_terms.add(typed_term)
                 continue
 
-            step_prefix = f"{term.name}-{id(term)}"
+            step_prefix = f"{typed_term.name}-{id(typed_term)}"
 
             # Check if term is stateful - StatefulFunctionTerm or has special attributes
             # Stateful terms need sequential processing to avoid race conditions
-            is_stateful = (
-                isinstance(term, StatefulFunctionTerm) or hasattr(term, "index")  # AddIndex
-            )
+            is_stateful = typed_term.requires_stateful() or hasattr(typed_term, "index")  # AddIndex
 
-            if is_stateful and term not in already_keyed_terms:
+            if is_stateful and typed_term not in already_keyed_terms:
                 # Use keyed stateful processing to ensure term instance variables are safe
                 # Key stream so all items for this term go to same worker for sequential access
-                term_id = id(term)
+                term_id = id(typed_term)
                 keyed_stream = op.key_on(f"key-{step_prefix}", stream, lambda _x, tid=term_id: f"term_{tid}")
 
-                def make_stateful_apply(captured_term: FunctionTerm) -> Any:  # noqa: ANN401
+                def make_stateful_apply(captured_term: FunctionTerm | FlatMapTerm) -> Any:  # noqa: ANN401
                     """Make stateful apply."""
 
                     def stateful_apply(_state: None, di: DataItem) -> tuple[None, list[DataItem]]:
                         """Apply function - state is unused, just ensures sequential execution."""
-                        # Call the function - term instance variables are safe because of keying
-                        result = normalize_result(captured_term.f(di))
-                        return (None, result)
+                        result_list = captured_term.apply(di)
+                        return (None, result_list)
 
                     return stateful_apply
 
                 # Apply stateful map (ensures sequential processing per term instance)
-                stateful_mapped = op.stateful_map(f"f-{step_prefix}", keyed_stream, make_stateful_apply(term))
+                stateful_mapped = op.stateful_map(f"f-{step_prefix}", keyed_stream, make_stateful_apply(typed_term))
 
                 # Flatten the results (extract value from keyed stream and flatten list)
-                outputs[term] = op.flat_map(f"flatten-{step_prefix}", stateful_mapped, lambda kv: kv[1])
+                outputs[typed_term] = op.flat_map(f"flatten-{step_prefix}", stateful_mapped, lambda kv: kv[1])
             else:
-                # Stateless function - use fast path with simple map
-                def _apply(di: DataItem, fun: Any) -> list[DataItem]:  # noqa: ANN401
-                    """Apply."""
-                    return normalize_result(fun(di))
-
-                outputs[term] = op.flat_map(f"f-{step_prefix}", stream, lambda di, term=term: _apply(di, term.f))
+                outputs[typed_term] = op.flat_map(
+                    f"f-{step_prefix}", stream, lambda di, term=typed_term: term.apply(di)
+                )
 
     results: list[DataItem] = []
 
@@ -246,8 +216,9 @@ def run_flow_graph(graph: TermGraph, *, flow_id: str = "logicsponge", workers: i
     class CollectorSink(DynamicSink):
         """CollectorSink class."""
 
-        def build(self, _step_id: str, _worker_index: int, _worker_count: int) -> CollectorPartition:
+        def build(self, step_id: str, worker_index: int, worker_count: int) -> CollectorPartition:
             """Build."""
+            _ = (step_id, worker_index, worker_count)
             return CollectorPartition()
 
     for term, stream in outputs.items():

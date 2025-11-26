@@ -104,8 +104,8 @@ def test_run_dataitem() -> None:
     """Test creating a Term."""
 
     class Hu(ls.FunctionTerm):
-        def f(self, a: ls.DataItem) -> ls.DataItem:
-            return a
+        def f(self, di: ls.DataItem) -> ls.DataItem:
+            return di
 
     x = Hu(name="x")
     assert str(x) == "Term(x)"
@@ -115,8 +115,8 @@ def test_term_accepts_any_name() -> None:
     """Term constructors accept any value as name (no runtime validation)."""
 
     class Foo(ls.FunctionTerm):
-        def f(self, item: ls.DataItem) -> ls.DataItem:
-            return item
+        def f(self, di: ls.DataItem) -> ls.DataItem:
+            return di
 
     # No runtime validation - accepts any type
     term = Foo(True)  # type: ignore[arg-type]  # noqa: FBT003
@@ -127,8 +127,8 @@ def test_term_rejects_multiple_positional_args() -> None:
     """Term constructors should allow at most one positional argument."""
 
     class Bar(ls.FunctionTerm):
-        def f(self, item: ls.DataItem) -> ls.DataItem:
-            return item
+        def f(self, di: ls.DataItem) -> ls.DataItem:
+            return di
 
     with pytest.raises(TypeError):
         Bar("name", "extra")  # type: ignore[arg-type]

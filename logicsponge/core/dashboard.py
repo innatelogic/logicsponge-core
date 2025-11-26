@@ -547,10 +547,10 @@ class Plot(ls.FunctionTerm):
             )
             raise KeyError(msg) from err
 
-    def f(self, item: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Add the new data."""
-        self.add_data(item)
-        return item
+        self.add_data(di)
+        return di
 
 
 class BinaryPlot(Plot):
@@ -576,10 +576,10 @@ class BinaryPlot(Plot):
         for y_name in self.y_names:
             self.graph.add_line(label=y_name, x=[], y=[])
 
-    def f(self, item: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Execute on new data."""
-        self.add_data(item)
-        return item
+        self.add_data(di)
+        return di
 
 
 class DeepPlot(ls.FunctionTerm):
@@ -629,17 +629,17 @@ class DeepPlot(ls.FunctionTerm):
         label = kwargs.get("label", None)
         self.graph.add_line(x=x, y=y, label=label)
 
-    def f(self, item: ls.DataItem) -> ls.DataItem:
+    def f(self, di: ls.DataItem) -> ls.DataItem:
         """Run the plotting."""
         self.graph.clear()
-        self._call_plot_dicts(item)
+        self._call_plot_dicts(di)
 
         # potentially call the then-registered function
         if self.then_fun is not None:
-            self.then_fun(self, item)
+            self.then_fun(self, di)
 
         # return all
-        return item
+        return di
 
     def then(self, fun: Callable[[Self, ls.DataItem], None]) -> Self:
         """Run a function after plotting."""
