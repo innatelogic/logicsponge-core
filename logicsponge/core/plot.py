@@ -57,6 +57,7 @@ class Plot(ls.FunctionTerm):
     ) -> None:
         """Create a Plot object."""
         super().__init__(*args, **kwargs)
+        plt.ion()
         self.state = {
             "x": [],
             "y": {},
@@ -69,6 +70,7 @@ class Plot(ls.FunctionTerm):
         self.lines = {}
         self.incremental = incremental
         self.fig, self.ax = plt.subplots()
+        self.fig.show()
 
     def _axis_setup(self, item: ls.DataItem) -> None:
         # check if need to discover the y_names
@@ -133,8 +135,8 @@ class Plot(ls.FunctionTerm):
         if self.fig is None:
             msg = "this should not happen: self.fig must be set"
             raise ValueError(msg)
-        # self.fig.canvas.flush_events()
         self.fig.canvas.draw_idle()
+        plt.pause(0.001)
 
     def add_data(self, item: ls.DataItem) -> None:
         """Add data to the plot."""
@@ -180,8 +182,8 @@ class Plot(ls.FunctionTerm):
         if self.fig is None:
             msg = "this should not happen: self.fig must be set"
             raise ValueError(msg)
-        # self.fig.canvas.flush_events()
         self.fig.canvas.draw_idle()
+        plt.pause(0.001)
 
     def f(self, di: ls.DataItem) -> ls.DataItem:
         """Run on new data item."""
@@ -204,6 +206,8 @@ class DeepPlot(ls.FunctionTerm):
         super().__init__(*args, **kwargs)
         self.lines = {}
         self.fig, self.ax = plt.subplots()
+        plt.ion()
+        self.fig.show()
 
     def _axis_setup(self, params: PlotParams) -> None:  # noqa: ARG002
         if self.ax is None:
@@ -251,6 +255,7 @@ class DeepPlot(ls.FunctionTerm):
 
         self.ax.plot(x, y, *args, **kwargs)
         self.fig.canvas.draw_idle()
+        plt.pause(0.001)
 
     def f(self, di: ls.DataItem) -> ls.DataItem:
         """Run f on new data item."""
